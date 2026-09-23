@@ -26,6 +26,7 @@ dependencies = [
     "pydantic>=2.9",
     "scikit-learn>=1.9.1",
     "torch>=2.6,<2.9",
+    "triton==3.4.0; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "transformers>=5.17,<6",
 ]
 
@@ -59,3 +60,13 @@ markers = ["server: needs a running kev.serve instance (KEV_BASE_URL)"]
 
 [tool.setuptools]
 packages = ["kev"]
+
+# PyPI's torch 2.8 ARM64 wheel is CPU-only; DGX Spark needs the CUDA build.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu129", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+triton = [{ index = "pytorch-cu129", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true

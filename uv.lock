@@ -4,7 +4,8 @@ requires-python = ">=3.12, <3.14"
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'emscripten'",
-    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 
 [[package]]
@@ -18,7 +19,8 @@ dependencies = [
     { name = "psutil" },
     { name = "pyyaml" },
     { name = "safetensors" },
-    { name = "torch" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.8.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f5/b5/1d3ed029ac71d3f2961346829a268da923698e9fd63f218f78841f216bfd/accelerate-1.15.0.tar.gz", hash = "sha256:5654f8c5eaa0d4fa68b33e287a97765da6849bf6d51dcac874e73fbbddfb6134", size = 422615, upload-time = "2026-09-09T13:04:49.078Z" }
 wheels = [
@@ -675,8 +677,10 @@ dependencies = [
     { name = "peft" },
     { name = "pydantic" },
     { name = "scikit-learn" },
-    { name = "torch" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.8.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "transformers" },
+    { name = "triton", version = "3.4.0", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 
 [package.optional-dependencies]
@@ -709,8 +713,10 @@ requires-dist = [
     { name = "peft", specifier = ">=0.21" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "scikit-learn", specifier = ">=1.9.1" },
-    { name = "torch", specifier = ">=2.6,<2.9" },
+    { name = "torch", marker = "platform_machine != 'aarch64' or sys_platform != 'linux'", specifier = ">=2.6,<2.9" },
+    { name = "torch", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", specifier = ">=2.6,<2.9", index = "https://download.pytorch.org/whl/cu129" },
     { name = "transformers", specifier = ">=5.17,<6" },
+    { name = "triton", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", specifier = "==3.4.0", index = "https://download.pytorch.org/whl/cu129" },
     { name = "typesafe-sdk", marker = "extra == 'serve'", specifier = ">=0.6.0" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.30" },
 ]
@@ -1260,7 +1266,8 @@ dependencies = [
     { name = "psutil" },
     { name = "pyyaml" },
     { name = "safetensors" },
-    { name = "torch" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.8.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "tqdm" },
     { name = "transformers" },
 ]
@@ -1829,6 +1836,11 @@ wheels = [
 name = "torch"
 version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'emscripten'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
 dependencies = [
     { name = "filelock" },
     { name = "fsspec" },
@@ -1850,7 +1862,7 @@ dependencies = [
     { name = "nvidia-nvtx-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "setuptools" },
     { name = "sympy" },
-    { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "triton", version = "3.4.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -1866,6 +1878,29 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4a/15/5e488ca0bc6162c86a33b58642bc577c84ded17c7b72d97e49b5833e2d73/torch-2.8.0-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:8f0a9d617a66509ded240add3754e462430a6c1fc5589f86c17b433dd808f97a", size = 887990692, upload-time = "2025-08-06T14:56:18.286Z" },
     { url = "https://files.pythonhosted.org/packages/b4/a8/6a04e4b54472fc5dba7ca2341ab219e529f3c07b6941059fbf18dccac31f/torch-2.8.0-cp313-cp313t-win_amd64.whl", hash = "sha256:a7242b86f42be98ac674b88a4988643b9bc6145437ec8f048fea23f72feb5eca", size = 241603453, upload-time = "2025-08-06T14:55:22.945Z" },
     { url = "https://files.pythonhosted.org/packages/04/6e/650bb7f28f771af0cb791b02348db8b7f5f64f40f6829ee82aa6ce99aabe/torch-2.8.0-cp313-none-macosx_11_0_arm64.whl", hash = "sha256:7b677e17f5a3e69fdef7eb3b9da72622f8d322692930297e4ccb52fefc6c8211", size = 73632395, upload-time = "2025-08-06T14:55:28.645Z" },
+]
+
+[[package]]
+name = "torch"
+version = "2.8.0+cu129"
+source = { registry = "https://download.pytorch.org/whl/cu129" }
+resolution-markers = [
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+]
+dependencies = [
+    { name = "filelock" },
+    { name = "fsspec" },
+    { name = "jinja2" },
+    { name = "networkx" },
+    { name = "setuptools" },
+    { name = "sympy" },
+    { name = "triton", version = "3.4.0", source = { registry = "https://download.pytorch.org/whl/cu129" } },
+    { name = "typing-extensions" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:692fe6e513b667f789a543fa9b1baba58e77a46d5c8629764ca0c00a56823e1f", upload-time = "2025-10-02T00:08:10Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:ad2d64316635e7ab06f6c973a252526d59a92a2045825c102f876914a72304d0", upload-time = "2025-10-02T00:13:03Z" },
+    { url = "https://download-r2.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:2982bf34249cbb38f1090e71ad7097a214a21023ccdc0413961986ab7d0396e6", upload-time = "2025-10-02T00:18:14Z" },
 ]
 
 [[package]]
@@ -1903,7 +1938,26 @@ wheels = [
 [[package]]
 name = "triton"
 version = "3.4.0"
+source = { registry = "https://download.pytorch.org/whl/cu129" }
+resolution-markers = [
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+]
+dependencies = [
+    { name = "setuptools" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/triton-3.4.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:00ea4a1c15f079bbf49ff02c312210fdb8ff05b1503ea30812610e2a3b171f3b", upload-time = "2026-01-22T22:47:17Z" },
+    { url = "https://download-r2.pytorch.org/whl/triton-3.4.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5acb528f01dc14362c4a88fa4dcfa227d132f6e61f272a6874e84d6485037ca4", upload-time = "2026-01-22T22:47:30Z" },
+    { url = "https://download-r2.pytorch.org/whl/triton-3.4.0-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:40b5d803a83b5e70895424a51c3a1a23dcc0f158a79f682aaa2c940903e747b9", upload-time = "2026-01-22T22:47:43Z" },
+]
+
+[[package]]
+name = "triton"
+version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
 dependencies = [
     { name = "setuptools" },
 ]

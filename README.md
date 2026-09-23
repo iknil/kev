@@ -35,6 +35,9 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 This starts Kev-4B locally in bf16 (`KEV_DTYPE=fp32` for the exact path the evaluations use). The first run downloads the adapter and base model. `--run` also accepts a local checkpoint directory or a Hub revision, such as `jaredpalmer/kev-4b@qwen3` for the previous generation.
 
+On DGX Spark, the same commands select PyTorch 2.8 with CUDA 12.9 and its matching ARM64 Triton wheel from the PyTorch index. The NVIDIA driver must support CUDA 12.9 or later. Other platforms keep their existing package sources. This installs the serving dependencies; the optional Qwen3.5 DeltaNet kernels used by the Modal image are not included.
+PyTorch 2.8 warns that GB10's compute capability 12.1 exceeds its declared maximum of 12.0. BF16 matrix multiplication and Kev-0.8B serving were verified on GB10 with driver 580.95.05; this does not establish compatibility for every CUDA operation or training workload.
+
 In another terminal, send it a ticket:
 
 ```bash
