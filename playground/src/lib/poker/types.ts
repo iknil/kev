@@ -1,0 +1,53 @@
+export type Suit = "s" | "h" | "d" | "c";
+export type Rank = "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "T" | "J" | "Q" | "K" | "A";
+export type Card = `${Rank}${Suit}`;
+export type Mode = "human" | "self";
+export type Street = "preflop" | "flop" | "turn" | "river";
+export type Action = { type: "fold" | "check" | "call" } | { type: "bet" | "raise"; to: number };
+export type Player = {
+  seat: number;
+  name: string;
+  personaId: string | null;
+  stack: number;
+  hole: Card[];
+  status: "active" | "folded" | "all-in" | "out";
+  streetBet: number;
+  committed: number;
+  actedAt: number | null;
+};
+export type GameEvent = {
+  street: Street;
+  seat: number | null;
+  text: string;
+};
+export type Pot = { amount: number; eligible: number[]; winners: number[] };
+export type GameState = {
+  id: string;
+  hand: number;
+  revision: number;
+  mode: Mode;
+  players: Player[];
+  dealer: number;
+  smallBlindSeat: number;
+  bigBlindSeat: number;
+  smallBlind: number;
+  bigBlind: number;
+  street: Street;
+  board: Card[];
+  deck: Card[];
+  currentBet: number;
+  lastFullRaise: number;
+  actor: number | null;
+  complete: boolean;
+  showdown: boolean;
+  pots: Pot[];
+  payouts: Record<number, number>;
+  history: GameEvent[];
+};
+export type LegalActions = {
+  fold: boolean;
+  check: boolean;
+  call: number;
+  aggression: null | { type: "bet" | "raise"; minTo: number; maxTo: number; shortAllIn: boolean };
+};
+export type Candidate = { id: string; action: Action; description: string };

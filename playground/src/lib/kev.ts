@@ -26,14 +26,14 @@ export type PermuteResponse = {
   spread: Record<string, number>;
 };
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`/kev${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(`/kev${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
   return r.json();
 }
 
 export const api = {
-  systemOne: (req: SystemOneRequest) => post<SystemOneResponse>("/v1/systemone", req),
+  systemOne: (req: SystemOneRequest, signal?: AbortSignal) => post<SystemOneResponse>("/v1/systemone", req, signal),
   separate: (req: SystemOneRequest) => post<SystemOneResponse>("/v1/systemone/separate", req),
   permute: (request: SystemOneRequest, question: string, n_perm = 6) => post<PermuteResponse>("/v1/systemone/permute", { request, question, n_perm }),
   models: async () => {
