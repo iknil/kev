@@ -20,7 +20,7 @@ export function decisionRequest(s: GameState) {
     state: { ...observation(s), personality: { style: persona.style, preferences: persona.preferences } },
     questions: { action: {
       type: "choice",
-      instructions: "Choose one legal poker action using only the visible facts and your playing preferences. Consider position, board, public action history, possible opposing hands, and chips left for later streets. The amounts are already calculated. You do not know opponents' private cards. Both value bets and bluffs may use the same amount.",
+      instructions: "Choose one legal poker action using only the visible facts and your playing preferences. streets lists every public action this hand, grouped by street: who acted in order, chips each player put in, and flags such as check_raised and limped. Consider position, board, those lines, possible opposing hands, and chips left for later streets. The amounts are already calculated. You do not know opponents' private cards. Both value bets and bluffs may use the same amount.",
       criteria: Object.fromEntries(candidates.map((c) => [c.id, c.description])),
     } },
   };

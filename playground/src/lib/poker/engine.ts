@@ -2,7 +2,7 @@ import { deck, shuffle, validateDeck } from "./cards";
 import { POKER_PERSONAS } from "./personas";
 import { clockwise, inHand, legalActions, TABLE_SIZES, validateAction } from "./rules";
 import { settle } from "./settlement";
-import type { Action, Card, GameState, Mode, Player, Street } from "./types";
+import type { Action, Card, EventKind, GameState, Mode, Player, Street } from "./types";
 
 function pay(p: Player, amount: number) {
   p.stack -= amount; p.streetBet += amount; p.committed += amount;
@@ -22,7 +22,7 @@ function dealStreet(s: GameState) {
   for (let i = 0; i < (s.street === "flop" ? 3 : 1); i++) s.board.push(draw(s));
   s.currentBet = 0; s.lastFullRaise = s.bigBlind;
   for (const p of s.players) { p.streetBet = 0; p.actedAt = null; }
-  s.history.push({ street: s.street, seat: null, text: `${s.street}: ${s.board.join(" ")}` });
+  s.history.push({ street: s.street, seat: null, text: `${s.street}: ${s.board.join(" ")}`, kind: "deal" });
 }
 
 function advance(s: GameState, after: number) {
@@ -66,7 +66,7 @@ export function startHand(previous: GameState, cards: Card[] = shuffle(deck())):
   for (let round = 0; round < 2; round++) for (const seat of order) s.players[seat].hole.push(draw(s));
   for (const [seat, blind] of [[s.smallBlindSeat, s.smallBlind], [s.bigBlindSeat, s.bigBlind]]) {
     const p = s.players[seat]; const amount = Math.min(blind, p.stack);
-    pay(p, amount); s.history.push({ street: s.street, seat, text: `Posted ${blind === s.smallBlind ? "SB" : "BB"} ${amount}` });
+    pay(p, amount); s.history.push({ street: s.street, seat, text: `Posted ${blind === s.smallBlind ? "SB" : "BB"} ${amount}`, kind: "post", pay: amount });
   }
   advance(s, s.bigBlindSeat);
   return s;
@@ -92,18 +92,21 @@ export function act(previous: GameState, seat: number, action: Action): GameStat
   validateAction(previous, action);
   const s = structuredClone(previous);
   const p = s.players[seat];
+  const kind: EventKind = action.type;
   let text: string = action.type;
+  let amount: number | undefined;
+  let to: number | undefined;
   if (action.type === "fold") p.status = "folded";
   else if (action.type === "call") {
-    const amount = legalActions(previous).call; pay(p, amount); text = `Call ${amount}`;
+    amount = legalActions(previous).call; pay(p, amount); text = `Call ${amount}`;
   } else if (action.type === "bet" || action.type === "raise") {
     const increase = action.to - s.currentBet;
     if (increase >= s.lastFullRaise) s.lastFullRaise = increase;
-    const amount = action.to - p.streetBet;
+    amount = action.to - p.streetBet; to = action.to;
     pay(p, amount); s.currentBet = action.to; text = `${action.type} to ${action.to} (pay ${amount})`;
   }
   p.actedAt = s.currentBet;
-  s.history.push({ street: s.street, seat, text: text + (p.status === "all-in" ? " · all-in" : "") });
+  s.history.push({ street: s.street, seat, text: text + (p.status === "all-in" ? " · all-in" : ""), kind, pay: amount, to, allIn: p.status === "all-in" || undefined });
   s.revision++;
   advance(s, seat);
   return s;

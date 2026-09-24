@@ -34,7 +34,7 @@ Add minimum aggression and all-in, clamp to the legal range, round to integer ch
 
 ## Model boundary
 
-Observation is an explicit allowlist: the acting player's cards, public board, stacks, contributions, statuses, effective stacks, and at most 24 recent public events. No deck, unrevealed board, or opponent hole cards are serialized. Personas influence instructions and never change legality or settlement.
+Observation is an explicit allowlist: the acting player's cards, public board, stacks, contributions, statuses, effective stacks, and a per-street public action log (order, chips put in, check-raise / limp flags). No deck, unrevealed board, or opponent hole cards are serialized. Personas influence instructions and never change legality or settlement.
 
 The adapter validates the returned action ID and probability distribution. The engine validates the selected action again. Probabilities describe model preferences, not win probabilities or calibrated mixed-strategy frequencies. The default executes the returned top choice.
 

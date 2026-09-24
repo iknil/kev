@@ -15,10 +15,15 @@ export type Player = {
   committed: number;
   actedAt: number | null;
 };
+export type EventKind = "post" | "fold" | "check" | "call" | "bet" | "raise" | "deal" | "refund" | "win";
 export type GameEvent = {
   street: Street;
   seat: number | null;
   text: string;
+  kind: EventKind;
+  pay?: number;
+  to?: number;
+  allIn?: boolean;
 };
 export type Pot = { amount: number; eligible: number[]; winners: number[] };
 export type GameState = {

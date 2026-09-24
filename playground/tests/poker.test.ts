@@ -153,7 +153,32 @@ test("20 distinct personas and API observation excludes hidden information", () 
   assert.deepEqual(decisionRequest(changed), original);
   const state = observation(s);
   assert.deepEqual(state.hero.hole_cards, s.players[s.actor!].hole);
-  assert.ok(!JSON.stringify(state).includes('"deck"'));
+  const blob = JSON.stringify(state);
+  assert.ok(!blob.includes('"deck"'));
+  assert.equal("recent_actions" in state, false);
+  assert.ok(state.streets[0].order.some((e) => e.did === "post"));
+});
+
+test("observation reports per-street lines, put-in, limp and check-raise", () => {
+  let s = streetState();
+  s = move(s, { type: "check" });
+  s = move(s, { type: "bet", to: 100 });
+  s = move(s, { type: "fold" });
+  s = move(s, { type: "fold" });
+  s = move(s, { type: "fold" });
+  s = move(s, { type: "fold" });
+  s = move(s, { type: "raise", to: 300 });
+  const flop = observation(s).streets.find((st) => st.street === "flop")!;
+  const hero = flop.players.find((p) => p.seat === 1)!;
+  const bettor = flop.players.find((p) => p.seat === 2)!;
+  assert.equal(hero.check_raised, true); assert.equal(hero.checked, true); assert.equal(hero.raised, true);
+  assert.equal(hero.put_in, 300); assert.match(hero.line, /check; raise to 300/);
+  assert.equal(bettor.bet, true); assert.equal(bettor.check_raised, false); assert.equal(bettor.put_in, 100);
+  assert.deepEqual(flop.order.map((e) => e.did), ["check", "bet", "fold", "fold", "fold", "fold", "raise"]);
+  let pre = game();
+  pre = move(pre, { type: "call" });
+  const utg = observation(pre).streets[0].players.find((p) => p.seat === 4)!;
+  assert.equal(utg.limped, true); assert.equal(utg.put_in, 20);
 });
 
 test("Kev adapter rejects unknown actions and malformed distributions", async () => {

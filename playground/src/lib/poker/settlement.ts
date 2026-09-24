@@ -10,7 +10,7 @@ export function settle(s: GameState): void {
     ranked[0].stack += excess;
     ranked[0].committed -= excess;
     ranked[0].streetBet = Math.max(0, ranked[0].streetBet - excess);
-    s.history.push({ street: s.street, seat: ranked[0].seat, text: `Uncalled ${excess} returned` });
+    s.history.push({ street: s.street, seat: ranked[0].seat, text: `Uncalled ${excess} returned`, kind: "refund", pay: excess });
   }
   const live = s.players.filter(inHand);
   const levels = [...new Set(s.players.map((p) => p.committed).filter(Boolean))].sort((a, b) => a - b);
@@ -45,7 +45,7 @@ export function settle(s: GameState): void {
   for (const [seat, amount] of Object.entries(s.payouts)) {
     const p = s.players[Number(seat)];
     const hand = s.showdown ? ` · ${evaluate([...p.hole, ...s.board]).name}` : " · others folded";
-    s.history.push({ street: s.street, seat: p.seat, text: `Won ${amount}${hand}` });
+    s.history.push({ street: s.street, seat: p.seat, text: `Won ${amount}${hand}`, kind: "win", pay: amount });
   }
   for (const p of s.players) { p.committed = 0; p.streetBet = 0; }
 }
