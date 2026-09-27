@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "repo_id": "iknil/poker-v1",
+  "repo_type": "dataset",
+  "revision": "bb377755a40fc7a3467006a1acc3262b1eb84d88",
+  "path_in_repo": "lite",
+  "files": {
+    "README.md": "df0b4e9351af416417d7c42db0fcfaa4c9565a098cd97ced484107625f787457",
+    "calibration.jsonl": "207c87c111d18ee60c3af6b689b62c2416f97314c1a4db9efb71035b61795b9b",
+    "development.jsonl": "a277f23e48f3aaf2f139da42cc18e39a3108e9f0794925e1c42155ee3e461e8b",
+    "manifest.json": "3c6ac1002935cd4d6c616f7e0c62ed9c6da97801d8f6739fe9dace5fa8bafee5",
+    "selection-report.json": "b21a77b6a3a0d1ab41708263ad8b7be37165a723bd1a667dbba888a909d47f12",
+    "test.jsonl": "a0f59ad45f431510f1ba707ba7dd115cd0e1af266699fe546b4aa53f3aac2244",
+    "train.jsonl": "9a12f17d530b14294761ea01b4b1e8ca455a5eb60a40bac9bfa2e41523d0b5a5"
+  }
+}

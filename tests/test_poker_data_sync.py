@@ -128,3 +128,24 @@ def test_upload_then_download_restores_pinned_files(tmp_path, monkeypatch):
     sync.verify_hashes(destination, pinned["files"])
     assert not (destination / "stray.safetensors").exists()
     assert (destination / "train.jsonl").read_bytes() == (suite / "train.jsonl").read_bytes()
+
+
+def test_download_from_repo_subdirectory(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    _write_suite(source)
+    names = sync.collect_files(source)
+    config = tmp_path / "lite-hub.json"
+    config.write_text(json.dumps({"schema_version": 1, "repo_id": sync.REPO_ID, "repo_type": "dataset",
+                                  "revision": "d" * 40, "path_in_repo": "lite",
+                                  "files": sync.file_hashes(source, names)}), encoding="utf-8")
+
+    def fake_run(command):
+        assert command[3:command.index("--type")] == [f"lite/{name}" for name in names]
+        target = Path(command[command.index("--local-dir") + 1]) / "lite"
+        shutil.copytree(source, target)
+        return CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sync, "_run_hf", fake_run)
+    destination = tmp_path / "downloaded"
+    sync.download(destination, config)
+    sync.verify_hashes(destination, sync.load_config(config)["files"])

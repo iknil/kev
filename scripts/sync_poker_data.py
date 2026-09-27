@@ -146,6 +146,8 @@ def load_config(path: Path) -> dict:
         raise ValueError(f"sync config must pin {REPO_TYPE} repo {REPO_ID}")
     if config.get("schema_version") != 1:
         raise ValueError("unsupported sync config schema")
+    if config.get("path_in_repo"):
+        _relative_path(config["path_in_repo"])
     return config
 
 
@@ -247,6 +249,7 @@ def download(local_dir: Path, config_path: Path) -> None:
     if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("sync config has no pinned 40-character Hub commit")
     hashes = validate_hashes(hashes)
+    prefix = config.get("path_in_repo", "")
 
     local_dir = local_dir.resolve()
     config_path = config_path.resolve()
@@ -255,12 +258,14 @@ def download(local_dir: Path, config_path: Path) -> None:
     local_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="poker-v1-hub-download-") as temporary:
         staging = Path(temporary)
-        command = ["hf", "download", REPO_ID, *sorted(hashes), "--type", REPO_TYPE,
+        remote_names = [f"{prefix}/{name}" if prefix else name for name in sorted(hashes)]
+        command = ["hf", "download", REPO_ID, *remote_names, "--type", REPO_TYPE,
                    "--revision", revision, "--local-dir", str(staging)]
         _run_hf(command)
-        _preflight_publish(staging, local_dir, hashes)
+        downloaded_root = staging / prefix if prefix else staging
+        _preflight_publish(downloaded_root, local_dir, hashes)
         for name in sorted(hashes):
-            src = _safe_file(staging, name)
+            src = _safe_file(downloaded_root, name)
             dst = _safe_file(local_dir, name, require_file=False)
             if dst.exists() or dst.is_symlink():
                 continue
