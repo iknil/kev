@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from kev.model import training_context
-from kev.suite import digest, read_manifest, write_json
+from kev.suite import SERVING_CONTEXT, digest, read_manifest, write_json
 
 
 PREFLOP = """You are a specialist. The small blind is 0.5 chips and the big blind is 1 chips. Everyone started with 100 chips.
@@ -127,7 +127,7 @@ def test_assemble_suite_checks_inputs_and_preserves_eval_test(tmp_path):
     combined = read_manifest(out)
     assert combined["files"]["test/sample.jsonl"]["sha256"] == digest(out / "test/sample.jsonl")
     assert combined["eval_only"] is False
-    assert combined["context"]["max_state"] == 8192
+    assert combined["context"] == SERVING_CONTEXT
     assert (out / "review/training/sample.json").exists()
     with pytest.raises(FileExistsError):
         builder.assemble_suite(train, evaluation, out)

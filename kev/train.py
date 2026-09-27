@@ -1,25 +1,28 @@
 """LoRA fine-tune of the decision model on labelled requests (a frozen suite's training partition, records built on the
-fly from the public sources, or your own JSONL), with the pointer head trained from scratch.
+fly from the public sources, or your own JSONL), with the pointer head trained from scratch. `--full_ft 1` trains the
+whole backbone instead (kev.full_ft: bf16 weights, fp32 masters; several GPUs through torchrun + FSDP2).
 
     uv run python -m kev.train --suite evals/v7/decision-v7 --out runs/<name>          # what studies run
     uv run python -m kev.train --n_per_source 40 --accum 4 --out runs/smoke               # ~1 min smoke test
     uv run python -m kev.train --data mine.jsonl --init_from jaredpalmer/kev-4b --lr 2e-5 --out runs/mine   # delta
+    torchrun --standalone --nproc_per_node 8 -m kev.train --full_ft 1 --weights_dtype bf16 --dtype bf16 --checkpointing 1 ...
 
-Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches.
+Batch size is small (variable-length records with custom masks) and gradients are accumulated over --accum micro-batches
+(per rank: a step sees accum x batch x world size records).
 """
-import argparse, contextlib, json, math, random, resource, sys, time
+import argparse, contextlib, dataclasses, json, math, os, random, resource, shutil, sys, time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 import torch
 import torch.nn.functional as F
+from . import full_ft
 from .checkpoint import Checkpoint, Meta, write_meta
-from .training_state import (StopRequest, random_state, requests_digest, resolve_resume,
-                             restore_random_state, save_snapshot)
-from .device import allocated_bytes, default_device, empty_cache
+from .training_state import StopRequest, random_state, requests_digest, resolve_resume, restore_random_state, save_snapshot
+from .device import allocated_bytes, default_device, empty_cache, sync
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
-from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, training_context
+from .model import MAX_STATE, MAX_TRAIN_STATE, DecisionModel, fits, load_tokenizer, rows_of, training_context, user_tokens
 
 
 # --- losses -----------------------------------------------------------------------------------------------------------
@@ -140,28 +143,197 @@ class Variant:
     request_id: str
     source: str
     permuted: tuple | None = None   # (encoding under the other order, perms from permuted_copy)
+    share: float = 1.0              # the part of its variant this is, when --row_budget split the variant's questions (row_passes)
 
     @property
     def tokens(self):
         return len(self.enc["ids"]) + (len(self.permuted[0]["ids"]) if self.permuted else 0)
 
 
-def encode_batch(model, tok, a, chunk, epoch):
-    """Augment each request (fresh permutation / none option / distractor per epoch), optionally add its none-pair
-    siblings and a permuted copy for the KL term, and encode strictly."""
+def shape(enc):
+    """(state tokens, branch tokens of each question) of an encoding (kev.model.rows_of)."""
+    state, _, rows = rows_of(enc)
+    return len(state), [len(r["ids"]) for r in rows]
+
+
+def pass_tokens(shapes, shared):
+    """Padded tokens of one forward pass over records of these shapes: in the row form, rows x the longest row (the state
+    once per question); with a shared prefix (kev.shared_prefix), states x the longest state + branches x the longest branch."""
+    if shared: return len(shapes) * max(s for s, _ in shapes) + sum(len(b) for _, b in shapes) * max(x for _, b in shapes for x in b)
+    rows = [s + x for s, branches in shapes for x in branches]
+    return len(rows) * max(rows)
+
+
+def question_parts(enc, budget, shared):
+    """--row_budget: a record's questions in consecutive groups whose pass fits `budget` tokens (a single question always
+    fits: its row is at most kev.model.MAX_TRAIN_STATE + a branch); one group without a budget."""
+    state, branches = shape(enc)
+    if not budget: return [list(range(len(branches)))]
+    parts = [[]]
+    for q in range(len(branches)):
+        if parts[-1] and pass_tokens([(state, [branches[i] for i in parts[-1] + [q]])], shared) > budget: parts.append([])
+        parts[-1].append(q)
+    return parts
+
+
+NONE_OPTION_CHARS = 64   # a none-pair sibling's extra option, in the characters microbatch_plan measures (kev.data.NONE_OPTIONS' longest is shorter)
+
+
+def microbatch_plan(reqs, a, world, rank, pairs=None, shapes=None):
+    """This rank's micro-batches for one epoch of `reqs` (already shuffled), in order: (records, records in its optimizer
+    step over all ranks, whether that step ends after it). Every rank gets the same number of micro-batches in every
+    step (FSDP2's collectives line up) and each record is seen once per epoch (the last step wraps around to fill every
+    rank, as full_ft.rank_share does).
+    Plain: `--batch` consecutive records of this rank's share per micro-batch, `--accum` micro-batches per step.
+    --length_sort 1: each step's records (batch x accum x world) are cut, in length order, into accum x world runs of
+    neighbours whose largest padded cost (pass_tokens) is as small as possible (sizes vary: one long record, or many short
+    ones), and the k-th micro-batch of every rank is one of the k-th costliest runs, so micro-batches pad little and the
+    ranks, which wait for the slowest at every layer, run similar loads. A step still sees the same records (the same
+    gradient up to summation order). Characters stand in for tokens (known before encoding). On the SFT corpus's shapes
+    (8 ranks, 128 records per step) the ranks' critical path is 1.4x the real tokens; plain length order, a fixed --batch
+    of neighbours, left it 4.3x (a few 6k-token states among many short public records).
+    pairs (--none_pair_max_state: the records whose none-pair siblings this epoch trains, by id(), from none_pairs): each
+    such record's cost also counts its two siblings (its state twice more, each with its longest Choice question and one
+    more option), so a micro-batch's real padded tokens stay within the cost the runs were cut to. Without it the siblings
+    of --p_none_pair are not in the cost: on long states they tripled a pass past the GPU (round 21's projection).
+    shapes (--pass_tokens_max, from plan_shapes: {id(record): the token shapes of every variant it trains this epoch,
+    siblings included}): the runs are cut on those exact padded tokens instead of characters, and a step whose costliest
+    run is over --pass_tokens_max gets one more micro-batch per rank (every rank the same count), until none is. Round 21
+    ran out of memory on a characters plan: a token-dense state (PII text, ~2 characters per token) set the padding of 16
+    states (8 records and their siblings) at 5,877 tokens: 98.7k padded tokens in a slot whose other passes, costed the
+    same in characters, held 33-50k."""
+    if not a.length_sort:
+        mine = full_ft.rank_share(reqs, rank, world)
+        n = math.ceil(len(mine) / a.batch)
+        return [(mine[mb * a.batch:(mb + 1) * a.batch], world * accumulation_records(len(mine), a.batch, a.accum, mb), (mb + 1) % a.accum == 0 or mb + 1 == n)
+                for mb in range(n)]
+    ceiling = a.pass_tokens_max if shapes is not None else 0
+    if shapes is None:
+        shapes = {id(r): [(len(json.dumps(r["state"], ensure_ascii=False)), [len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values()])] for r in reqs}
+        for r in reqs if pairs else ():
+            if id(r) in pairs:   # a sibling: the state again with one Choice (at most the longest) and a none option
+                choice = max(len(json.dumps(q, ensure_ascii=False)) for q in r["questions"].values() if q["type"] == "choice")
+                shapes[id(r)] += [(shapes[id(r)][0][0], [choice + NONE_OPTION_CHARS])] * 2
+    cost = lambda rs: pass_tokens([s for r in rs for s in shapes[id(r)]], a.shared_prefix)
+    if ceiling and (over := [r for r in reqs if cost([r]) > ceiling]):
+        worst = max(over, key=lambda r: cost([r]))
+        raise ValueError(f"{len(over)} record(s) need more than --pass_tokens_max {ceiling} padded tokens on their own (the largest, "
+                         f"{worst['_meta']['id']}, {cost([worst])}): raise the ceiling or lower --max_state")
+    plan, per_step = [], a.batch * a.accum * world
+    for start in range(0, len(reqs), per_step):
+        step = reqs[start:start + per_step]
+        m = math.ceil(len(step) / (world * a.batch))   # micro-batches per rank: accum, fewer in a short last step
+        step += step[:max(0, world * m - len(step))]    # so no micro-batch is empty; the repeats count in len(step), the
+                                                         # step's loss normaliser, as rank_share's do in the plain path
+        runs = balanced_runs(sorted(step, key=lambda r: cost([r]), reverse=True), world * m, cost)
+        while ceiling and max(map(cost, runs)) > ceiling:   # ends: world * m runs of one record each are all within it
+            m += 1
+            # a step with fewer records than runs (a short last step) repeats its cheapest, counted like the fill above
+            step += sorted(step, key=lambda r: cost([r]))[:max(0, world * m - len(step))]
+            runs = balanced_runs(sorted(step, key=lambda r: cost([r]), reverse=True), world * m, cost)
+        runs = sorted(runs, key=cost, reverse=True)
+        plan += [(runs[k * world + rank], len(step), k == m - 1) for k in range(m)]
+    return plan
+
+
+def balanced_runs(items, n, cost):
+    """`items` cut into exactly n consecutive non-empty runs, the costliest as cheap as a greedy cut allows (binary search
+    on the cap); when the cap leaves fewer runs, the costliest splittable run is halved until there are n."""
+    def cut(cap):
+        runs = [[]]
+        for item in items:
+            if runs[-1] and cost(runs[-1] + [item]) > cap: runs.append([])
+            runs[-1].append(item)
+        return runs
+    low, high = max(cost([item]) for item in items), cost(items)
+    while low < high:
+        mid = (low + high) // 2
+        if len(cut(mid)) <= n: high = mid
+        else: low = mid + 1
+    runs = cut(low)
+    while len(runs) < n:
+        run = max((r for r in runs if len(r) > 1), key=cost)
+        at = runs.index(run); runs[at:at + 1] = [run[:len(run) // 2], run[len(run) // 2:]]
+    return runs
+
+
+def row_passes(batch, budget, shared):
+    """--row_budget: a micro-batch's variants in forward/backward passes of at most `budget` padded tokens (pass_tokens),
+    longest first; [batch] without a budget. The loss is a sum over variants (a split record's parts carry their share of
+    its mean), so the gradient is the same sum, but only one pass's activations are alive at a time: on one H200 a 27B's
+    bf16 weights and gradients leave ~35 GB; the first probe, with passes of up to 16k tokens, ran out of memory."""
+    if not budget: return [batch]
+    passes = []   # [variants, their shapes]
+    for v in sorted(batch, key=lambda v: pass_tokens([shape(v.enc)], shared), reverse=True):
+        if passes and pass_tokens(passes[-1][1] + [shape(v.enc)], shared) <= budget:
+            passes[-1][0].append(v); passes[-1][1].append(shape(v.enc))
+        else:
+            passes.append([[v], [shape(v.enc)]])
+    return [p[0] for p in passes]
+
+
+def state_token_counts(tok, reqs):
+    """{id(record): state tokens} as kev.model.encode counts them: the <state> token plus user_tokens of the materialised
+    state (kev.rounds.state_lengths, `state_tokens` in rows); the length --none_pair_max_state gates on."""
+    return {id(r): 1 + len(user_tokens(tok, materialize(r)["state"])) for r in reqs}
+
+
+def none_pairs(a, reqs, epoch, state_tokens):
+    """--none_pair_max_state: {id(record)} of the records that train their none-pair siblings this epoch. A record draws
+    from its own stream (seed, epoch, record id, "none_pair"), so microbatch_plan knows the siblings before anything is
+    encoded; it pairs with probability --p_none_pair when its state has at most none_pair_max_state tokens and it has an
+    eligible Choice (kev.data.none_pair returns its pair)."""
+    return {id(r) for r in reqs if state_tokens[id(r)] <= a.none_pair_max_state
+            and random.Random(source_seed(a.seed, f"{epoch}:{r['_meta']['id']}:none_pair")).random() < a.p_none_pair
+            and none_pair(r, random.Random(0))}
+
+
+def record_variants(req, a, epoch, pairs=None):
+    """(the requests one record trains this epoch, its item stream afterwards): the augmented record (fresh permutation /
+    none option / distractor per epoch) and its none-pair siblings. pairs None: a record draws its none pair from its own
+    item stream with probability --p_none_pair (every recipe before --none_pair_max_state); otherwise exactly the records
+    in pairs (by id(), none_pairs) get theirs. encode_batch trains them; plan_shapes measures them."""
+    item_rng = random.Random(source_seed(a.seed, f"{epoch}:{req['_meta']['id']}"))
+    variants = [augment(req, item_rng, p_none=a.p_none, p_none_distract=a.p_none_distract, p_distract=a.p_distract)]
+    if pairs is None:
+        if a.p_none_pair > 0 and item_rng.random() < a.p_none_pair:
+            variants += none_pair(req, item_rng)
+    elif id(req) in pairs:
+        variants += none_pair(req, item_rng)
+    return variants, item_rng
+
+
+def plan_shapes(model, tok, a, reqs, epoch, pairs, state_tokens):
+    """--pass_tokens_max: {id(record): [(state tokens, [branch tokens of each question]) of every variant it trains this
+    epoch (record_variants: augmented, siblings included)]}, the shapes encode_batch will build, exactly. A branch's tokens
+    do not depend on the state (kev.model.encode tokenizes each part on its own), so the branches are encoded under an
+    empty state and the state's count comes from state_token_counts: the states are not tokenized a second time. The
+    branches are tokenized again every epoch (augmentation draws per epoch), a few minutes on the SFT corpus. Encoded
+    under a one-token state, a branch is not checked against its real state's row limit here: one that fits a one-token
+    state but not the real one still raises ContextOverflow in encode_batch, mid-epoch, as without this flag (frozen
+    suites are admitted with branch headroom, so it does not arise on them)."""
+    c = training_context(a.max_state)
+    branches = lambda v: [len(r["ids"]) for r in rows_of(model.encode(tok, {**materialize(v), "state": ""}, max_state=c["max_state"], max_branch=c["max_branch"]))[2]]
+    return {id(r): [(state_tokens[id(r)], branches(v)) for v in record_variants(r, a, epoch, pairs)[0]] for r in reqs}
+
+
+def encode_batch(model, tok, a, chunk, epoch, pairs=None):
+    """Each request's variants for this epoch (record_variants), optionally a permuted copy for the KL term, encoded
+    strictly."""
     out, c = [], training_context(a.max_state)
     limits = {"max_state": c["max_state"], "max_branch": c["max_branch"]}
     for req in chunk:
-        item_rng = random.Random(source_seed(a.seed, f"{epoch}:{req['_meta']['id']}"))
-        variants = [augment(req, item_rng, p_none=a.p_none, p_none_distract=a.p_none_distract, p_distract=a.p_distract)]
-        if a.p_none_pair > 0 and item_rng.random() < a.p_none_pair:
-            variants += none_pair(req, item_rng)
+        variants, item_rng = record_variants(req, a, epoch, pairs)
         for v in variants:
             rec = materialize(v)
             enc = model.encode(tok, rec, strict=True, **limits)
             if len(enc["ids"]) > c["max_packed"]:
                 raise ValueError(f"training request exceeds {c['max_packed']} packed tokens")
-            out.append(Variant(rec, enc, req["_meta"]["id"], req["_meta"]["source"]))
+            parts = question_parts(enc, a.row_budget, a.shared_prefix)
+            for part in parts:   # one part unless --row_budget splits a record whose rows do not fit one pass
+                sub = rec if len(parts) == 1 else {**rec, "questions": [rec["questions"][q] for q in part]}
+                out.append(Variant(sub, enc if sub is rec else model.encode(tok, sub, strict=True, **limits), req["_meta"]["id"], req["_meta"]["source"],
+                                   share=len(part) / len(rec["questions"])))
         if a.perm_kl > 0 and item_rng.random() < a.perm_frac and any(q["qtype"] == "choice" and len(q["options"]) >= 3 for q in rec["questions"]):
             rec2, perms = permuted_copy(rec, item_rng)
             out[-1].permuted = (model.encode(tok, rec2, strict=True, **limits), perms)
@@ -174,17 +346,17 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
     terms = Counter()
     permuted = [v for v in batch if v.permuted]
     with autocast:
-        logits_b = model.forward_batch([v.enc for v in batch])
-        logits2_b = model.forward_batch([v.permuted[0] for v in permuted]) if permuted else []
+        logits_b = model.forward_batch([v.enc for v in batch], a.shared_prefix)
+        logits2_b = model.forward_batch([v.permuted[0] for v in permuted], a.shared_prefix) if permuted else []
     loss = 0.0
     for v, logits in zip(batch, logits_b):
         ce = sum(question_loss(z.float(), q, dev, a.ord_w, a.label_smoothing, a.brier_w, a.focal_gamma)
-                 for z, q in zip(logits, v.rec["questions"])) / len(logits)
+                 for z, q in zip(logits, v.rec["questions"])) / len(logits) * v.share
         terms["ce"] += ce.item(); loss = loss + ce
         if anchors and v.request_id in anchors and (anchor_sources is None or v.source in anchor_sources):
             kls = [t for t in (anchor_loss(z.float(), q, anchors[v.request_id].get(q["qid"]), dev) for z, q in zip(logits, v.rec["questions"])) if t is not None]
             if kls:
-                kl_a = sum(kls) / len(kls); loss = loss + a.anchor_w * kl_a; terms["anchor"] += kl_a.item(); terms["anchor_n"] += 1
+                kl_a = sum(kls) / len(kls) * v.share; loss = loss + a.anchor_w * kl_a; terms["anchor"] += kl_a.item(); terms["anchor_n"] += v.share
     for v, logits2 in zip(permuted, logits2_b):
         logits = logits_b[batch.index(v)]
         kls = [permutation_kl(z1.float(), z2.float(), perm, dev) for z1, z2, perm in zip(logits, logits2, v.permuted[1]) if perm is not None]
@@ -197,7 +369,7 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
 # --- run --------------------------------------------------------------------------------------------------------------
 
 def parse_args():
-    ap = argparse.ArgumentParser(allow_abbrev=False)
+    ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="Qwen/Qwen3-0.6B-Base")
     ap.add_argument("--n_per_source", type=int, default=1000)
     ap.add_argument("--epochs", type=int, default=1)
@@ -230,6 +402,8 @@ def parse_args():
     ap.add_argument("--p_none_distract", type=float, default=0.12)
     ap.add_argument("--p_distract", type=float, default=0.15)
     ap.add_argument("--p_none_pair", type=float, default=0.0, help="fraction of Choice records that additionally emit a none-present/none-absent minimal pair")
+    ap.add_argument("--none_pair_max_state", type=int, default=None, help="only records whose state has at most this many tokens emit none pairs (each pair repeats "
+                                                                          "the state twice); their siblings count in the --length_sort cost (default: every record, as before)")
     ap.add_argument("--synthetic_repeat", type=int, default=1, help="oversample synthetic policy sources (legacy_policy, compositional, contrastive) this many times per epoch")
     ap.add_argument("--public_frac", type=float, default=1.0, help="deterministic subsample of public-source training records (mix ablations)")
     ap.add_argument("--anchor", default="", help="JSON of frozen-base zero-shot distributions {record_id: {qid: {key: p}}} (kev.anchors); enables the anchoring loss")
@@ -242,17 +416,37 @@ def parse_args():
     ap.add_argument("--init_from", default="", help="delta mode: warm-start LoRA and the pointer head from an existing run "
                                                    "(local directory or hub id) instead of starting from the base model; keeps the "
                                                    "released model's in-domain skill while adapting to a new domain")
+    ap.add_argument("--full_ft", type=int, choices=[0, 1], default=0, help="train every backbone weight (bf16, fp32 masters in kev.full_ft.MasterAdamW) instead of a LoRA; "
+                                                                          "needs --weights_dtype bf16. One GPU: masters in host memory. Under torchrun: FSDP2 across the GPUs")
+    ap.add_argument("--row_budget", type=int, default=0, help="padded row tokens per forward/backward pass (0 = the whole micro-batch at once); a micro-batch over it "
+                                                              "runs in several passes, a record whose rows do not fit is split by question (long states x many questions)")
+    ap.add_argument("--shared_prefix", type=int, choices=[0, 1], default=None, help="hybrid backbones: run each record's state once and its question branches from it "
+                                                                                  "(kev.shared_prefix; exact) instead of one row per question; default on with --full_ft 1, off otherwise")
+    ap.add_argument("--length_sort", type=int, choices=[0, 1], default=0, help="deal each optimizer step's records into micro-batches balanced by padded length "
+                                                                               "(--batch becomes the average; same records per step; see microbatch_plan)")
+    ap.add_argument("--pass_tokens_max", type=int, default=0, help="with --length_sort 1: padded tokens (pass_tokens: states x the longest state + branches x the longest "
+                                                                   "branch, none-pair siblings included) no forward/backward pass may exceed; the plan cuts on exact "
+                                                                   "token shapes and gives a step more micro-batches (every rank the same count) until none does (0 = off)")
+    ap.add_argument("--max_steps", type=int, default=0, help="stop after this many optimizer steps (0 = every epoch); the lr schedule spans them")
+    ap.add_argument("--save_every_steps", type=int, default=0, help="write a resume point every N optimizer steps")
+    ap.add_argument("--save_total_limit", type=int, default=3, help="LoRA: number of complete training snapshots to retain")
+    ap.add_argument("--save_every_minutes", type=float, default=0, help="full-weight: write a resume point once this many minutes have passed since the last")
+    ap.add_argument("--resume", default="", help="full-weight: 1 continues from <out>/resume; LoRA: local run directory to resume")
+    ap.add_argument("--stop_after", type=int, default=0, help="full-weight: exit after this optimizer step without saving the checkpoint (a run split across containers; tests)")
+    ap.add_argument("--snapshot_fractions", default="", help="full-weight: also write a loadable checkpoint (the final one's files) after these fractions of the optimizer steps, "
+                                                             "e.g. 0.25,0.5,0.75, into <snapshot_dir>/step-<N>/checkpoint; kept, never deleted ('' or none: no snapshots)")
+    ap.add_argument("--snapshot_every_steps", type=int, default=0, help="full-weight: also write a snapshot every N optimizer steps")
+    ap.add_argument("--snapshot_dir", default="", help="where snapshots go (default <out>-snapshots; a study trial's are <trial>/snapshots)")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--save_every_steps", type=int, default=0, help="save complete training progress every N optimizer updates; 0 disables periodic saves")
-    ap.add_argument("--save_total_limit", type=int, default=3, help="number of complete training snapshots to retain")
-    ap.add_argument("--resume", default="", help="local run directory to resume from its latest complete snapshot; restores the original training arguments")
     a = ap.parse_args()
-    if a.resume:
+    if a.resume and a.resume != "1":
         try:
             path = resolve_resume(a.resume)
             saved = read_json(path / "training_config.json")["args"]
         except (OSError, ValueError, KeyError) as error:
             ap.error(f"cannot resume: {error}")
+        if saved.get("full_ft"):
+            ap.error("full-weight runs resume with --out <run> --resume 1")
         supplied = {arg.split("=", 1)[0] for arg in sys.argv[1:] if arg.startswith("--")}
         allowed = {"resume", "save_every_steps", "save_total_limit"}
         for name, value in vars(a).items():
@@ -262,8 +456,11 @@ def parse_args():
         vars(a).update(saved)
         vars(a).update(overrides)
         a.out = str(Path(a.resume).resolve())
+    if a.resume == "1" and not a.full_ft:
+        ap.error("LoRA runs resume with --resume <run directory>")
     if a.save_every_steps < 0 or a.save_total_limit < 1:
         ap.error("save_every_steps must be nonnegative and save_total_limit must be positive")
+    if a.shared_prefix is None: a.shared_prefix = a.full_ft
     if min(a.epochs, a.accum, a.n_per_source, a.lora, a.batch, a.synthetic_repeat) < 1 or not 0 < a.public_frac <= 1:
         ap.error("epochs, accum, n_per_source, lora, batch and synthetic_repeat must be positive; 0 < public_frac <= 1")
     if a.dtype == "bf16" and a.device != "cuda":
@@ -277,11 +474,62 @@ def parse_args():
         ap.error("--anchor and --anchor_w > 0 go together")
     if not MAX_STATE <= a.max_state <= MAX_TRAIN_STATE:
         ap.error(f"--max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
+    if a.none_pair_max_state is not None and (a.none_pair_max_state < 1 or a.p_none_pair <= 0):
+        ap.error("--none_pair_max_state is a positive token count and needs --p_none_pair > 0")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
-    if Path(a.out).exists() and not a.resume:
+    if a.full_ft and (problem := full_ft.unsupported_torch()):
+        ap.error(problem)
+    if a.full_ft and (a.weights_dtype != "bf16" or a.special_embeddings):
+        ap.error("--full_ft 1 trains bf16 weights (--weights_dtype bf16) and every embedding already (no --special_embeddings)")
+    if a.row_budget < 0 or a.max_steps < 0 or a.pass_tokens_max < 0:
+        ap.error("--row_budget, --pass_tokens_max and --max_steps are >= 0")
+    if a.pass_tokens_max and (not a.length_sort or a.row_budget or a.perm_kl > 0):
+        ap.error("--pass_tokens_max caps the passes --length_sort 1 plans: not without it, nor with --row_budget (which splits them "
+                 "again), nor --perm_kl (a permuted copy is a second pass whose activations are alive at the same time)")
+    if a.row_budget and (a.perm_kl > 0 or a.anchor_w > 0 or int(os.environ.get("WORLD_SIZE", "1")) > 1):
+        ap.error("--row_budget splits micro-batches into passes: not with --perm_kl (a record and its permuted copy share a loss term), "
+                 "nor --anchor_w (a split record's parts would weight its anchored questions by their part's share of all its questions, "
+                 "not 1 / anchored questions), nor under torchrun (FSDP2 ranks must run the same number of backward passes; sharded "
+                 "ranks have the memory without it)")
+    if (a.save_every_minutes or a.stop_after) and not a.full_ft:
+        ap.error("--save_every_minutes and --stop_after are for full-weight runs (--full_ft 1)")
+    try: fractions = full_ft.snapshot_fractions(a.snapshot_fractions)
+    except ValueError as error: ap.error(str(error))
+    if a.snapshot_every_steps < 0 or ((fractions or a.snapshot_every_steps) and not a.full_ft):
+        ap.error("snapshots (--snapshot_fractions, --snapshot_every_steps >= 0) are for full-weight runs (--full_ft 1)")
+    # kev.budget.MAX_SNAPSHOTS; an every-N plan without --max_steps is checked in main, once the run's steps are known
+    if not (a.snapshot_every_steps and not a.max_steps) and (problem := full_ft.too_many_snapshots(fractions, a.snapshot_every_steps, a.max_steps or None)):
+        ap.error(problem)
+    if Path(a.out).exists() and not a.resume and os.environ.get("RANK", "0") == "0":   # under torchrun rank 0 creates it; the others would race it
         ap.error("refusing to overwrite an existing run")
+    if (fractions or a.snapshot_every_steps) and not a.resume and full_ft.completed_snapshots(snapshot_root(a)):
+        ap.error(f"{snapshot_root(a)} holds another run's snapshots (a new run would skip their steps); choose another --snapshot_dir")
     return a
+
+
+def snapshot_root(a):
+    return Path(a.snapshot_dir or f"{a.out}-snapshots")
+
+
+def finish_checkpoint(out, meta, tok):
+    """What a checkpoint holds besides the backbone (or adapter): head.pt and the tokenizer files. The final checkpoint and
+    every snapshot are finished the same way, so a snapshot loads like the checkpoint it precedes."""
+    write_meta(out, meta)
+    tok.save_pretrained(out)
+
+
+RESUME_KNOBS = ("resume", "save_every_steps", "save_every_minutes", "stop_after", "snapshot_fractions", "snapshot_every_steps", "snapshot_dir")   # may differ between a run and its continuation
+RESUMED = ("step", "seen", "tokens_seen", "peak_mem", "optimizer_seconds", "step_seconds", "elapsed", "epoch", "microbatch", "grad_norms")   # counters a resume point carries
+
+
+MAX_GRAD_NORM = 1.0   # both optimizers clip the global gradient norm to this (full_ft.MasterAdamW's default)
+
+
+def grad_norm_summary(grad_norms):
+    """Per epoch: mean and max of the steps' global gradient norms before clipping, and how many steps were clipped."""
+    return [{"epoch": ep, "steps": len(norms), "mean": sum(norms) / len(norms), "max": max(norms), "clipped_steps": sum(n > MAX_GRAD_NORM for n in norms)}
+            for ep, norms in enumerate(grad_norms) if norms]
 
 
 def pinned_revision(a, manifest):
@@ -297,19 +545,19 @@ def pinned_revision(a, manifest):
 
 def main():
     a = parse_args()
-    out_dir = Path(a.out); out_dir.mkdir(parents=True, exist_ok=bool(a.resume))
-    torch.manual_seed(a.seed); rng = random.Random(a.seed)
     dev = a.device or default_device()
+    rank, world = full_ft.init_distributed(dev) if a.full_ft else (0, 1)   # torchrun: each rank's "cuda" is its own GPU
+    out_dir = Path(a.out)
+    if rank: sys.stdout = open(os.devnull, "w", encoding="utf-8")   # one log: rank 0's (errors still reach stderr)
+    else: out_dir.mkdir(parents=True, exist_ok=bool(a.resume))
+    torch.manual_seed(a.seed); rng = random.Random(a.seed)
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True; torch.backends.cudnn.allow_tf32 = True
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if a.dtype == "bf16" else contextlib.nullcontext()
     manifest = read_manifest(a.suite) if a.suite else None
-    resume_path = resolve_resume(a.resume) if a.resume else None
-    resumed = torch.load(resume_path / "training_state.pt", map_location="cpu", weights_only=True) if resume_path else None
-    previous_config = read_json(resume_path / "training_config.json") if resume_path else None
-    initial = Checkpoint(a.init_from) if a.init_from and not resumed else None
-    if initial and not a.base_revision and initial.meta.base == a.base:
-        a.base_revision = initial.meta.base_revision or ""
+    local_resume = resolve_resume(a.resume) if a.resume and not a.full_ft else None
+    local_position = torch.load(local_resume / "training_state.pt", map_location="cpu", weights_only=True) if local_resume else None
+    previous_config = read_json(local_resume / "training_config.json") if local_resume else None
     revision = pinned_revision(a, manifest)
     holdout = manifest["holdout_sources"] if manifest else [s for s in a.holdout.split(",") if s]
     anchors = read_json(a.anchor).get("targets", {}) if a.anchor else {}
@@ -317,124 +565,196 @@ def main():
     anchor_sources = set(a.anchor_sources.split(",")) if a.anchor_sources else None
 
     tok = load_tokenizer(a.base, revision=revision)
-    model = DecisionModel(a.base, tok, dev, lora=a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
+    model = DecisionModel(a.base, tok, dev, lora=None if a.full_ft else a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
                           option_isolation=bool(a.option_isolation), special_embeddings=bool(a.special_embeddings),
-                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32)
-    # Pin auto-resolved Hub revisions so a resumed run cannot silently change its backbone.
-    revision = revision or getattr(model.lm.config, "_commit_hash", None)
-    if revision:
-        a.base_revision = revision
+                          dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32, direct_load=bool(a.full_ft))
     if a.checkpointing:
         model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.lm.config.use_cache = False
     # what this run will save as head.pt; also the architecture a warm start must match
-    meta = Meta(base=a.base, base_revision=revision, lora=a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
-                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout)
+    meta = Meta(base=a.base, base_revision=revision, lora=0 if a.full_ft else a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
+                special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout, weights="full" if a.full_ft else "lora")
     init_source = None
-    if initial:
-        # delta mode (PR #9, Radexito): start from an already trained adapter + pointer head instead of the base model, so a
-        # fine-tune on new data keeps what the released checkpoint knows
-        init_source = initial.warm_start(model, meta)
-        print(f"delta: warm start from {init_source['resolved']}: {init_source['adapter_tensors']} adapter tensors and the pointer head loaded", flush=True)
-    if resumed:
-        Checkpoint(str(resume_path)).warm_start(model, meta)
+    if local_resume:
+        Checkpoint(str(local_resume)).warm_start(model, meta)
         init_source = previous_config["init_source"]
-    print(f"device={dev} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
+    elif a.init_from:
+        # delta mode (PR #9, Radexito): start from an already trained adapter (or full backbone) + pointer head instead of the
+        # base model, so a fine-tune on new data keeps what the released checkpoint knows
+        init_source = Checkpoint(a.init_from).warm_start(model, meta)
+        print(f"delta: warm start from {init_source['resolved']}: {init_source['tensors']} {meta.weights} tensors and the pointer head loaded", flush=True)
+    if a.pass_tokens_max and not model.hybrid:
+        # pass_tokens is exact for the row form and the shared prefix, which a hybrid backbone always runs; an attention-only
+        # one runs the packed mask (rows_form) unless a record is over ROW_PASS_TOKENS, whose cost it does not measure
+        raise SystemExit("kev.train: --pass_tokens_max needs a hybrid backbone (Gated DeltaNet: every pass runs as rows or a shared "
+                         f"prefix, which pass_tokens measures); {a.base} is attention-only and runs the packed mask")
+    if world > 1: full_ft.shard(model)
+    print(f"device={dev} world={world} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
     reqs = training_requests(a, tok, manifest, holdout)
+    # the none-pair gate (none_pairs) and the ceiling's token shapes (plan_shapes)
+    state_tokens = state_token_counts(tok, reqs) if a.none_pair_max_state is not None or a.pass_tokens_max else None
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
-    data_hash = requests_digest(reqs)
     config = {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
-              "ordinal_objective": "ranked_probability_score", "holdout": holdout,
-              "requests_sha256": data_hash, "anchor_sha256": digest(a.anchor) if a.anchor else None,
-              "device": dev}
-    if resumed:
-        for key in ("suite_sha256", "base_revision", "requests_sha256", "anchor_sha256", "device"):
-            if config[key] != previous_config[key]:
-                raise ValueError(f"resume mismatch: {key}; training inputs or device changed")
-    write_json(out_dir / "training_config.json", config)
+              "ordinal_objective": "ranked_probability_score", "holdout": holdout}
+    if not a.full_ft:
+        config.update(requests_sha256=requests_digest(reqs), anchor_sha256=digest(a.anchor) if a.anchor else None, device=dev)
+        if previous_config:
+            for key in ("suite_sha256", "base_revision", "requests_sha256", "anchor_sha256", "device"):
+                if config[key] != previous_config[key]:
+                    raise ValueError(f"resume mismatch: {key}; training inputs or device changed")
+    if not rank:
+        write_json(out_dir / "training_config.json", config)
     print(f"{len(reqs)} training requests (holdout={holdout}), questions by type "
           f"{dict(Counter(q['qtype'] for r in reqs for q in materialize(r)['questions']))}")
 
     head_params = list(model.head.parameters()); head_ids = {id(p) for p in head_params}
     groups = [{"params": [p for p in model.trainable_parameters() if id(p) not in head_ids], "lr": a.lr},
               {"params": head_params, "lr": a.head_lr or a.lr}]
-    opt = torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
-    micro_per_epoch = math.ceil(len(reqs) / a.batch)
-    steps = a.epochs * math.ceil(micro_per_epoch / a.accum)
+    # full weights: one GPU keeps the fp32 masters and moments in host memory; FSDP2 ranks keep their shard's on the GPU
+    opt = full_ft.MasterAdamW(groups, lr=a.lr, weight_decay=a.weight_decay, offload=world == 1, max_grad_norm=MAX_GRAD_NORM) if a.full_ft else torch.optim.AdamW(groups, lr=a.lr, weight_decay=a.weight_decay)
+    # counts only: they depend on len(reqs), not on the shuffle (--length_sort: one step per batch x accum x world records,
+    # however many micro-batches the ceiling gives it)
+    per_epoch = math.ceil(len(reqs) / (a.batch * a.accum * world)) if a.pass_tokens_max else sum(ends for _, _, ends in microbatch_plan(reqs, a, world, rank))
+    steps = a.epochs * per_epoch
+    steps = min(steps, a.max_steps) if a.max_steps else steps
+    if a.full_ft and (problem := full_ft.too_many_snapshots(full_ft.snapshot_fractions(a.snapshot_fractions), a.snapshot_every_steps, steps)):
+        raise SystemExit(f"kev.train: {problem}")   # before the first step (and before a resume point is read): nothing to lose yet
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
-    model.train(); t0 = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = 0
-    elapsed = 0.0
+    step = seen = tokens_seen = peak_mem = optimizer_seconds = elapsed = start_epoch = start_mb = 0; step_seconds, resume_seconds = [], []; run = Counter()
+    grad_norms = []   # per epoch, each optimizer step's global gradient norm before clipping
+    resume_dir, resume_args = out_dir / "resume", {k: v for k, v in vars(a).items() if k not in RESUME_KNOBS}
+    position = full_ft.load_resume(resume_dir, opt, sched, resume_args) if a.resume and a.full_ft else None
+    if position:
+        step, seen, tokens_seen, peak_mem, optimizer_seconds, step_seconds, elapsed, start_epoch, start_mb, grad_norms = (position[k] for k in RESUMED)
+        seen, tokens_seen = seen / world, tokens_seen / world   # saved as sums over the ranks (global_sum below adds them back)
+        run = Counter(position["run"])
+        print(f"resumed from {resume_dir / position['dir']}: step {step}, epoch {start_epoch}, micro-batch {start_mb}", flush=True)
     order = list(range(len(reqs)))
-    start_epoch = next_microbatch = 0
-    if resumed:
+    if local_position:
         names = [name for name, param in model.named_parameters() if param.requires_grad]
-        if names != resumed["parameter_names"] or sorted(resumed["order"]) != list(range(len(reqs))):
+        if names != local_position["parameter_names"] or sorted(local_position["order"]) != order:
             raise ValueError("resume parameter layout or data order mismatch")
-        opt.load_state_dict(resumed["optimizer"])
-        sched.load_state_dict(resumed["scheduler"])
-        order = resumed["order"]
-        start_epoch, next_microbatch = resumed["epoch"], resumed["next_microbatch"]
-        step, seen, tokens_seen = resumed["step"], resumed["seen"], resumed["tokens_seen"]
-        peak_mem, elapsed = resumed["peak_mem"], resumed["elapsed"]
-        run = Counter(resumed["run"])
-        restore_random_state(resumed["rng"], rng, dev)
-        print(f"resumed step {step}/{steps}, epoch {start_epoch}, next microbatch {next_microbatch}", flush=True)
-
-    def save_model(path):
-        model.lm.save_pretrained(str(path))
-        meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
-        write_meta(path, meta)
-        tok.save_pretrained(str(path))
-
+        opt.load_state_dict(local_position["optimizer"])
+        sched.load_state_dict(local_position["scheduler"])
+        order = local_position["order"]
+        step, seen, tokens_seen = (local_position[key] for key in ("step", "seen", "tokens_seen"))
+        peak_mem, elapsed = local_position["peak_mem"], local_position["elapsed"]
+        start_epoch, start_mb = local_position["epoch"], local_position["next_microbatch"]
+        run = Counter(local_position["run"])
+        restore_random_state(local_position["rng"], rng, dev)
+        print(f"resumed step {step}/{steps}, epoch {start_epoch}, micro-batch {start_mb}", flush=True)
+    writer = full_ft.ResumeWriter(resume_dir, background=world > 1) if a.full_ft else None   # FSDP2: state on the GPUs, written from a host copy
+    snapshots = None
+    if a.full_ft and (plan_steps := full_ft.snapshot_steps(steps, full_ft.snapshot_fractions(a.snapshot_fractions), a.snapshot_every_steps)):
+        snapshots = full_ft.SnapshotWriter(snapshot_root(a), plan_steps, background=world > 1)   # FSDP2: written from rank 0's gathered copy
+        print(f"snapshots after optimizer steps {plan_steps} of {steps} -> {snapshot_root(a)}/step-<N>/checkpoint", flush=True)
+        if position and (missed := snapshots.missed(step)):
+            print(f"!!! snapshot(s) at step(s) {missed} are missing and cannot be written: this run continues from step {step}", flush=True)
+    model.train(); t0, last, saved_at, stopped = time.time() - elapsed, time.time(), time.time(), False
     def save_progress(epoch, microbatch):
         state = {"optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
                  "parameter_names": [name for name, param in model.named_parameters() if param.requires_grad],
                  "order": order, "epoch": epoch, "next_microbatch": microbatch, "step": step,
                  "seen": seen, "tokens_seen": tokens_seen, "peak_mem": peak_mem,
-                 "elapsed": elapsed + time.time() - t0, "run": dict(run), "rng": random_state(rng, dev)}
+                 "elapsed": time.time() - t0, "run": dict(run), "rng": random_state(rng, dev)}
+        def save_model(path):
+            model.lm.save_pretrained(str(path))
+            meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
+            finish_checkpoint(path, meta, tok)
         path = save_snapshot(out_dir, step, state, config, save_model, a.save_total_limit)
-        # Serializing a checkpoint must not change subsequent dropout or shuffling.
         restore_random_state(state["rng"], rng, dev)
         print(f"saved training progress {path}", flush=True)
 
-    last_saved = step if resumed else None
-    with StopRequest() as stop:
-        for ep in range(start_epoch, a.epochs):
-            if next_microbatch == 0:
-                rng.shuffle(order)
-            for mb in range(next_microbatch, micro_per_epoch):
-                chunk = [reqs[i] for i in order[mb * a.batch : (mb + 1) * a.batch]]
-                batch = encode_batch(model, tok, a, chunk, ep)
-                loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast)
-                # Normalize by records in this accumulation group, including a short final group.
-                group_records = accumulation_records(len(reqs), a.batch, a.accum, mb) * (len(batch) / len(chunk))
-                (loss / group_records).backward()
-                run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.tokens for v in batch)
+    last_saved = step if local_position else None
+    if not a.full_ft and not local_position and a.save_every_steps:
+        save_progress(0, 0)
+        last_saved = 0
+    with (contextlib.nullcontext() if a.full_ft else StopRequest()) as stop:
+        for ep in range(a.epochs):
+            if a.full_ft:
+                rng.shuffle(reqs)
+                if ep < start_epoch: continue   # replay finished epochs' shuffles for full-weight resume
+                epoch_reqs = reqs
+            else:
+                if ep < start_epoch: continue
+                if not (local_position and ep == start_epoch and start_mb): rng.shuffle(order)
+                epoch_reqs = [reqs[i] for i in order]
+            pairs = none_pairs(a, epoch_reqs, ep, state_tokens) if a.none_pair_max_state is not None else None
+            if pairs is not None and not rank:
+                print(f"none pairs: {len(pairs)} of {len(epoch_reqs)} records (states of at most {a.none_pair_max_state} tokens, p {a.p_none_pair})", flush=True)
+            shapes = plan_shapes(model, tok, a, epoch_reqs, ep, pairs, state_tokens) if a.pass_tokens_max else None
+            plan = microbatch_plan(epoch_reqs, a, world, rank, pairs, shapes)   # every record once per epoch across the ranks (all of them on one GPU)
+            if shapes is not None:   # every rank: the largest pass over the ranks is a collective
+                largest = int(full_ft.global_max([max(pass_tokens([s for r in chunk for s in shapes[id(r)]], a.shared_prefix) for chunk, _, _ in plan)])[0])
+                if not rank:
+                    print(f"plan: {len(plan)} micro-batches per rank for {sum(ends for _, _, ends in plan)} steps (--accum {a.accum}); "
+                          f"the plan's largest pass {largest} of --pass_tokens_max {a.pass_tokens_max} padded tokens", flush=True)
+            for mb in range(start_mb if ep == start_epoch else 0, len(plan)):
+                chunk, step_records, ends_step = plan[mb]
+                batch = encode_batch(model, tok, a, chunk, ep, pairs)
+                variants = sum(v.share for v in batch)   # a record split by --row_budget counts once
+                # weight by source records in the accumulation group (over all ranks) so none-pair siblings do not inflate a record's share
+                group_records = step_records * (variants / len(chunk))
+                for part in row_passes(batch, a.row_budget, a.shared_prefix):
+                    loss, terms = batch_loss(model, a, part, dev, anchors, anchor_sources, autocast)
+                    (loss / group_records).backward()
+                    run += terms
+                run["n"] += variants; seen += round(variants); tokens_seen += sum(v.tokens for v in batch)
                 peak_mem = max(peak_mem, allocated_bytes(dev))
-                if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
-                    torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)
-                    opt.step(); sched.step(); opt.zero_grad(); step += 1
-                    if dev == "mps": empty_cache(dev)
+                if ends_step:
+                    if not a.full_ft: norm = float(torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), MAX_GRAD_NORM, error_if_nonfinite=True))   # MasterAdamW clips by the global norm itself; both refuse a non-finite norm (a NaN gradient from a finite loss)
+                    started = time.time(); opt.step(); sync(dev); optimizer_seconds += time.time() - started
+                    grad_norms += [[] for _ in range(ep + 1 - len(grad_norms))]
+                    grad_norms[ep].append(round(opt.grad_norm if a.full_ft else norm, 6))
+                    sched.step(); opt.zero_grad(); step += 1
+                    step_seconds.append(round(time.time() - last, 3)); last = time.time()
+                    if dev == "mps": empty_cache(dev)   # MPS only: per-step cache release keeps the unified-memory footprint down; on CUDA it would just slow the step
                     if step % 10 == 0:
-                        print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(elapsed+time.time()-t0)/seen:.3f}s/rec", flush=True)
+                        print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(time.time()-t0)/seen:.3f}s/rec", flush=True)
                         run = Counter()
-                    if stop.requested or (a.save_every_steps and step % a.save_every_steps == 0):
-                        at_end = mb + 1 == micro_per_epoch
+                    if not a.full_ft and (stop.requested or (a.save_every_steps and step % a.save_every_steps == 0)):
+                        at_end = mb + 1 == len(plan)
                         save_progress(ep + 1 if at_end else ep, 0 if at_end else mb + 1)
                         last_saved = step
-                    if stop.requested:
+                    if not a.full_ft and stop.requested:
                         print(f"training paused; resume with: python -m kev.train --resume {out_dir}", flush=True)
                         return
-            next_microbatch = 0
-        if (a.save_every_steps or a.resume) and last_saved != step:
+                    if step == steps: break
+                    if snapshots and snapshots.due(step):
+                        info = {"step": step, "steps": steps, "epoch": round(ep + (mb + 1) / len(plan), 6), "records_seen": round(full_ft.global_sum([seen])[0])}
+                        head = {k: v.detach().to("cpu", copy=True) for k, v in model.head.state_dict().items()}   # training goes on while it is written
+                        snap_meta = dataclasses.replace(meta, head=head, extra={"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source, "snapshot": info})
+                        snapshots.save(step, model.lm, lambda d, m=snap_meta: finish_checkpoint(d, m, tok), info)
+                        last = time.time()   # the time training blocked, not part of the next step's
+                    if a.full_ft and full_ft.save_due(step, a.save_every_steps, a.save_every_minutes, saved_at, max(resume_seconds, default=0)):
+                        values = (step, *full_ft.global_sum([seen, tokens_seen]), peak_mem, optimizer_seconds, step_seconds, time.time() - t0, ep, mb + 1, grad_norms)
+                        writer.save(step, opt, sched, {**dict(zip(RESUMED, values)), "run": dict(run), "world": world, "args": resume_args}, after=snapshots)
+                        resume_seconds.append(round(time.time() - last, 3)); saved_at = last = time.time()   # the time training blocked, not part of the next step's
+                    if step == a.stop_after: stopped = True; break
+            if step == steps or stopped: break
+        if not a.full_ft and (a.save_every_steps or local_position) and last_saved != step:
             save_progress(a.epochs, 0)
+    if writer: writer.wait()   # a resume point being written in the background is finished (and then superseded, or continued from)
+    if snapshots: snapshots.wait()   # and the last snapshot
+    if stopped:
+        print(f"stopped after step {step}; continue with --resume 1", flush=True); return
+    seen, tokens_seen = full_ft.global_sum([seen, tokens_seen])   # ranks' micro-batches differ in size under --length_sort
 
-    save_model(a.out)
-    write_json(out_dir / "training_metrics.json", {"wall_seconds": elapsed + time.time() - t0, "records_seen": seen,
+    wall = time.time() - t0
+    if a.full_ft: full_ft.save_backbone(model.lm, a.out)   # every rank: FSDP2 gathers to rank 0
+    else: model.lm.save_pretrained(a.out)
+    if rank: return
+    backbone_seconds = time.time() - t0 - wall
+    shutil.rmtree(resume_dir, ignore_errors=True)   # the checkpoint supersedes it
+    meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
+    finish_checkpoint(a.out, meta, tok)
+    write_json(out_dir / "training_metrics.json", {"wall_seconds": wall, "records_seen": round(seen),
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
-               "optimizer_steps": step, "forward_tokens": tokens_seen,
-               "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
+               "optimizer_steps": step, "forward_tokens": round(tokens_seen), "step_seconds": step_seconds, "optimizer_seconds": optimizer_seconds, "resume_seconds": resume_seconds, "resume_write_seconds": writer.seconds if writer else [], "world_size": world,
+               "backbone_save_seconds": round(backbone_seconds, 1), "snapshots": snapshots.written if snapshots else [],   # snapshots: this attempt's (each snapshot.json has its own)
+               "grad_norm": grad_norm_summary(grad_norms),
+               "weights": meta.weights, "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,
                "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)})
     print("saved", a.out, flush=True)
 

@@ -22,7 +22,9 @@ from mlx.utils import tree_flatten
 from mlx_lm.models.cache import make_prompt_cache
 from mlx_lm.utils import load_model
 
-from .model import PointerHead, encode, rows_of, rows_per_pass
+from .model import PointerHead, encode, probs_one, rows_of, rows_per_pass
+
+CACHE_LIMIT = 1 << 30   # MLX's buffer cache keeps a buffer per new request shape; Kev-4B on an M5, 50 requests: 1.0 GB cached vs 3.7 GB unbounded, same latency
 
 
 def merge_lora(lm, adapter_dir, scale=1.0):
@@ -48,9 +50,11 @@ def merge_lora(lm, adapter_dir, scale=1.0):
             base = params[target]
             delta = (weights[stem + ".lora_B.weight"].astype(mx.float32) @ a.astype(mx.float32)) * (alpha * scale)
             merged[target] = (base.astype(mx.float32) + delta).astype(base.dtype)
-        mx.eval(list(merged.values()))
+            mx.eval(merged[target])   # one tensor at a time: one graph over every target peaks at ~2.9x the base weights and leaves ~2x of them in MLX's buffer cache (25.8 GB RSS for the 4B)
     lm.load_weights(list(merged.items()), strict=False)
     mx.eval(lm.parameters())
+    del params, weights   # drop the pre-merge weights and the adapter before clearing the cache, or ~7 GB stay cached
+    mx.clear_cache()   # hand the merge transients back to the OS; MLX keeps freed buffers otherwise
     return len(merged)
 
 
@@ -61,6 +65,7 @@ class MLXDecisionModel:
 
     def __init__(self, base_dir, pad_id, head_dim=256):
         self.lm, _ = load_model(Path(base_dir))                       # weights as stored (bf16 for the Qwen3.5 bases)
+        mx.set_cache_limit(CACHE_LIMIT)
         self.text = self.lm.language_model.model                      # Qwen3_5TextModel: embeddings -> layers -> final norm = `.model.last_hidden_state`
         self.pad_id = pad_id
         self.head = PointerHead(self.text.embed_tokens.weight.shape[1], dp=head_dim).eval()
@@ -142,3 +147,8 @@ class MLXDecisionModel:
         Ls, cache = prefix
         if enc["seg"].count(0) != Ls: raise ValueError("prefix does not match this record's state")
         return self._branch_probs(enc, cache)
+
+    def probs_batch(self, encs, prefixes, keep):
+        """kev.serve's batch call: one request at a time on Metal."""
+        out = [probs_one(self, e, p, k) for e, p, k in zip(encs, prefixes, keep)]
+        return [o[0] for o in out], [o[1] for o in out]

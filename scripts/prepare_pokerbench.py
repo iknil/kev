@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-from kev.suite import digest, load_split, read_json, write_json, write_jsonl
+from kev.suite import ADMISSION_TOKENIZER, digest, load_split, read_json, write_json, write_jsonl
 from pokerbench_state import transform_record
 
 
@@ -226,7 +226,7 @@ def main():
         "base_revisions": {
             **parent_manifest.get("base_revisions", {}),
             "Qwen/Qwen3.5-0.8B-Base": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
-            "Qwen/Qwen3.5-4B-Base": "1001bb4d826a52d1f399e183466143f4da7b741b",
+            ADMISSION_TOKENIZER[0]: ADMISSION_TOKENIZER[1],
             "Qwen/Qwen3.5-9B-Base": "68c46c4b3498877f3ef123c856ecfde50c39f404",
         },
         "dataset_revisions": {DATASET: REVISION},

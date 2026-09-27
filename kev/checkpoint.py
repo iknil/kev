@@ -1,4 +1,10 @@
-"""Trained checkpoints: a run directory or a Hub repo holding a LoRA adapter, `head.pt` and the tokenizer.
+"""Trained checkpoints: a run directory or a Hub repo holding a LoRA adapter (or, for a full-weight run, the whole bf16
+backbone), `head.pt` and the tokenizer.
+
+Loader rule: `adapter_config.json` present -> a LoRA adapter on `meta.base` at `meta.base_revision`; no adapter and
+`config.json` + `model*.safetensors` (save_pretrained of the backbone, `meta.weights == "full"`) -> the backbone is loaded from
+the checkpoint directory itself, nothing is merged, in the dtype head.pt's `weights_dtype` names (it must match the `dtype`
+save_pretrained wrote to config.json). The tokenizer always comes from the base (both layouts carry a copy).
 
 This is the one place that knows the layout of `head.pt` and how a checkpoint becomes a `DecisionModel`:
 `kev.serve`, `kev.benchmark`, `kev.train --init_from`, `kev.publish`, the scripts and the Hugging Face Space all go
@@ -10,6 +16,7 @@ import the data or suite modules at import time.
     ck.meta.temperature                             # the calibration the checkpoint carries
 """
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -52,9 +59,10 @@ class Meta:
     weights_dtype: str = "fp32"
     temperature: float = 1.0
     holdout: list = field(default_factory=list)
+    weights: str = "lora"          # "lora": an adapter on the base; "full": the whole backbone is in the checkpoint (kev.train --full_ft)
     extra: dict = field(default_factory=dict)
 
-    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout")
+    KNOWN = ("base", "head", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights_dtype", "temperature", "holdout", "weights")
 
     @classmethod
     def from_dict(cls, d):
@@ -81,9 +89,15 @@ class LoadOptions:
                  backbone). kev.serve defaults to bf16 on CUDA and MPS instead: half the memory, 2-4.5x lower latency on an
                  L4 (Kev-4B: 209 -> 118 ms at 101 tokens, 850 -> 189 ms at 330 tokens), probabilities within ~0.01 and
                  the same argmax on the checks run so far. KEV_DTYPE=fp32 restores the exact path when serving.
-    merge        fold the LoRA into the base weights in fp32 before any cast. Exact in fp32; in bf16 it is faster (~15%)
-                 and closer to the fp32 numbers than the unmerged adapter (kev-4b, 24 dev records: max |dp| 0.017 vs
-                 0.029, 0 vs 1 argmax flips). Ignored for adapters that carry trained token embeddings.
+    merge        fold the LoRA into the base weights: the delta is computed from the fp32 adapter and added in fp32 with
+                 one rounding to the load dtype, so a bf16 model holds exactly round(W + delta), the same bits as merging
+                 an fp32 copy and casting, without the fp32 copy (Kev-9B needed 36 GB of GPU memory to load for that).
+                 Identical because the Qwen bases are stored in bf16; a base stored in fp32 would be rounded twice.
+                 Exact in fp32; in bf16 it is faster (~15%) and closer to the fp32 numbers than the unmerged adapter
+                 (kev-4b, 24 dev records: max |dp| 0.017 vs 0.029, 0 vs 1 argmax flips). Ignored for adapters that carry
+                 trained token embeddings. A checkpoint trained on a bf16 backbone (--weights_dtype bf16: Kev-27B) keeps
+                 its adapter unmerged, as it was trained, unless `fused` is asked for (serving); then it is folded the same
+                 way (Kev-27B served against unmerged: max |dp| 0.009, 0 flips in 280 questions, runs/fused-27b-h200).
     attn         attention backend; None = the model default (SDPA on CUDA, eager elsewhere). "sdpa" on MPS measured
                  parity with eager and is a few percent faster.
     lora_scale   WiSE-FT-style interpolation between base (0) and fine-tuned weights (1), at inference.
@@ -94,6 +108,13 @@ class LoadOptions:
                  installed and fp32 was not asked for (an explicit dtype=float32 means "the exact path"), else torch;
                  kev.serve uses auto. The MLX path always merges the adapter and ignores `attn` and `dtype` (the backbone
                  runs as stored, bf16).
+    cuda_graphs  replay the serving passes of a hybrid backbone on CUDA (state prefix, question rows on a cached state) as
+                 CUDA graphs, batched across requests (kev.cuda_graphs, DecisionModel.probs_batch). None = off, the eager
+                 path every reported number uses; kev.serve turns it on for CUDA. Exact up to floating-point
+                 reassociation, not bit for bit (the passes are padded to buckets).
+    fused        rewrite a merged hybrid backbone on CUDA with fused Triton kernels (kev.fused_qwen35; needs
+                 flash-linear-attention fused_qwen35.FLA_VERSION and refuses any other). None = off; kev.serve turns it on
+                 for CUDA when fused_available() (KEV_FUSED=0 to decline). Equal to the reference layers up to bf16 rounding.
     """
     dtype: torch.dtype | None = None
     merge: bool = True
@@ -101,12 +122,15 @@ class LoadOptions:
     lora_scale: float = 1.0
     temperature: float | None = None
     backend: str | None = None
+    cuda_graphs: bool | None = None
+    fused: bool | None = None
 
     BACKENDS = (None, "torch", "mlx", "auto")
 
     @classmethod
     def from_env(cls, env=os.environ):
-        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto.
+        """KEV_DTYPE=bf16|fp16|fp32, KEV_MERGE=0, KEV_ATTN=sdpa|eager, KEV_LORA_SCALE, KEV_TEMPERATURE, KEV_BACKEND=torch|mlx|auto,
+        KEV_CUDA_GRAPHS=0|1, KEV_FUSED=0|1.
         For command-line entry points only; library code passes an explicit LoadOptions. Explicit values that equal a
         library default are kept (fp32 as torch.float32, "torch" as a string) so a caller with its own default, like
         kev.serve, can tell "asked for it" from "did not say"."""
@@ -115,7 +139,9 @@ class LoadOptions:
         return cls(dtype={"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(env.get("KEV_DTYPE", "")),
                    merge=env.get("KEV_MERGE", "1") != "0", attn=env.get("KEV_ATTN") or None,
                    lora_scale=float(env.get("KEV_LORA_SCALE", "1")),
-                   temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend)
+                   temperature=float(env["KEV_TEMPERATURE"]) if env.get("KEV_TEMPERATURE") else None, backend=backend,
+                   cuda_graphs={"0": False, "1": True}.get(env.get("KEV_CUDA_GRAPHS", "")),
+                   fused={"0": False, "1": True}.get(env.get("KEV_FUSED", "")))
 
 
 def mlx_available():
@@ -124,6 +150,18 @@ def mlx_available():
         return True
     except ImportError:
         return False
+
+
+def fused_available():
+    """Whether kev.fused_qwen35 can run: flash-linear-attention importable at its FLA_VERSION (kev.serve's CUDA default;
+    not in the serve extra, pinned in the Modal images). An explicit fused=True skips this and fails loudly instead."""
+    if importlib.util.find_spec("fla") is None: return False
+    try:
+        import fla
+        from .fused_qwen35 import FLA_VERSION
+    except ImportError:
+        return False
+    return fla.__version__ == FLA_VERSION
 
 
 class Checkpoint:
@@ -137,6 +175,27 @@ class Checkpoint:
 
     def adapter_config(self):
         return json.loads(self.file("adapter_config.json").read_text(encoding="utf-8"))
+
+    @property
+    def full(self):
+        """The loader rule (module docstring): True for a full-weight checkpoint, False for a LoRA adapter; head.pt's
+        `weights` must agree with the files."""
+        found = "lora" if self.file("adapter_config.json").exists() else "full" if self.file("config.json").exists() and self.shards() else None
+        if found != self.meta.weights:
+            raise ValueError(f"{self.path}: head.pt says weights={self.meta.weights!r} but the directory holds "
+                             f"{ {'lora': 'an adapter', 'full': 'backbone weights'}.get(found, 'neither an adapter nor backbone weights') }")
+        return found == "full"
+
+    def shards(self):
+        """The backbone's safetensors files of a full-weight checkpoint (model.safetensors or model-*-of-*.safetensors)."""
+        return sorted(Path(self.path).glob("model*.safetensors"))
+
+    def weights_sha256(self):
+        """What a run's provenance pins: the adapter file's sha256, or for full weights the sha256 over every shard's."""
+        from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
+        if not self.full: return digest(self.file("adapter_model.safetensors"))
+        import hashlib
+        return hashlib.sha256("".join(f"{p.name}:{digest(p)}\n" for p in self.shards()).encode()).hexdigest()
 
     def release_date(self):
         """ISO date for the TypeSafe model card: the Hub commit date for a Hub checkpoint (falls back to the cached file's
@@ -160,10 +219,10 @@ class Checkpoint:
         if opts.backend not in LoadOptions.BACKENDS: raise ValueError(f"unknown backend {opts.backend!r}")
         if opts.backend != "auto": return opts.backend or "torch"
         exact = opts.dtype is torch.float32   # KEV_DTYPE=fp32: the caller wants the reported-numbers path, not a faster one
-        return "mlx" if str(device) == "mps" and not exact and mlx_available() and self.hybrid_base() else "torch"
+        return "mlx" if str(device) == "mps" and not exact and mlx_available() and not self.full and self.hybrid_base() else "torch"
 
     def load(self, device, opts=LoadOptions()):
-        """-> (tokenizer, model) in eval mode with the LoRA applied and the pointer head loaded. The model is a
+        """-> (tokenizer, model) in eval mode with the LoRA applied (or the full backbone loaded) and the pointer head loaded. The model is a
         DecisionModel (torch) or an MLXDecisionModel (backend mlx); both expose the same scoring interface."""
         meta = self.meta
         tok = load_tokenizer(meta.base, revision=meta.base_revision)
@@ -173,7 +232,8 @@ class Checkpoint:
         return tok, m
 
     def _load_mlx(self, tok, opts):
-        from .mlx_model import MLXDecisionModel, merge_lora
+        if self.full: raise ValueError("the MLX backend merges an adapter into the base; full-weight checkpoints run on backend=torch")
+        from .mlx_model import MLXDecisionModel, merge_lora   # after the refusal: without mlx-lm the import would hide it
         if not opts.merge: raise ValueError("the MLX backend always merges the adapter (KEV_MERGE=0 needs backend=torch)")
         if self.meta.option_isolation: raise ValueError("option_isolation needs the packed mask; not available on the MLX backend")
         if not self.hybrid_base(): raise ValueError(f"the MLX backend is for the hybrid (Qwen3.5) bases; {self.meta.base} is attention-only and runs on MPS with backend=torch")
@@ -183,49 +243,97 @@ class Checkpoint:
         return m
 
     def _load_torch(self, tok, device, opts):
+        m, merged = self._full_torch(tok, device, opts) if self.full else self._adapted_torch(tok, device, opts)
+        serving = str(device).startswith("cuda") and m.hybrid
+        if opts.fused and serving and merged:   # fused projections need plain (merged or full) weights
+            from .fused_qwen35 import fuse
+            fuse(m.lm)
+        if opts.cuda_graphs and serving:
+            from .cuda_graphs import CudaGraphs
+            m.graphs = CudaGraphs(m.lm, m.pad_id)
+        return m
+
+    SAVED_DTYPES = {"bf16": "bfloat16", "fp32": "float32"}   # head.pt weights_dtype -> the dtype save_pretrained writes to config.json
+
+    def _full_torch(self, tok, device, opts):
+        """-> (model, True). Full weights load in the dtype head.pt's `weights_dtype` names (bf16 for every kev.train
+        --full_ft run: the dtype they were trained in), which must be the dtype save_pretrained recorded in config.json;
+        otherwise a mislabelled export would be silently cast (fp32 weights rounded to bf16, or bf16 upcast to twice the
+        memory). An explicit dtype still casts on purpose (fp32: the same values computed in fp32). Nothing to merge."""
+        if opts.lora_scale != 1: raise ValueError("lora_scale interpolates an adapter; a full-weight checkpoint has none")
+        meta = self.meta
+        cfg = json.loads(self.file("config.json").read_text(encoding="utf-8"))
+        expected, saved = self.SAVED_DTYPES.get(meta.weights_dtype), cfg.get("dtype") or cfg.get("torch_dtype")
+        if expected is None or saved not in (None, expected):
+            raise ValueError(f"{self.path}: config.json records the weights as {saved} but head.pt says weights_dtype={meta.weights_dtype!r}")
+        return DecisionModel(meta.base, tok, device, head_dim=meta.head_dim, option_isolation=meta.option_isolation,
+                             dtype=opts.dtype or getattr(torch, expected), attn=opts.attn, weights=self.path), True
+
+    def _adapted_torch(self, tok, device, opts):
+        """-> (model, whether the adapter was merged): the base with this checkpoint's LoRA."""
         from peft import PeftModel
         meta = self.meta
         dtype, merge = opts.dtype or torch.float32, opts.merge
         if meta.weights_dtype == "bf16":
-            # trained with a bf16 backbone (--weights_dtype bf16, e.g. the 35B-A3B MoE whose fused experts need bf16): load it
-            # the same way and keep the fp32 adapter unmerged rather than folding it into bf16 weights.
-            dtype, merge = torch.bfloat16, False
+            # trained with a bf16 backbone (--weights_dtype bf16: Kev-27B, the 35B-A3B MoE whose fused experts need bf16):
+            # load it the same way. The exact path keeps the fp32 adapter unmerged; the fused serving path folds it in
+            # (one rounding of W + delta, as for every served Kev; parity in runs/serving-27b-*).
+            dtype, merge = torch.bfloat16, merge and bool(opts.fused)
         merge = merge and not self.adapter_config().get("trainable_token_indices")   # token-trained adapters stay unmerged
         m = DecisionModel(meta.base, tok, device, lora=None, revision=meta.base_revision, head_dim=meta.head_dim,
-                          option_isolation=meta.option_isolation, dtype=torch.float32 if merge else dtype, attn=opts.attn)
+                          option_isolation=meta.option_isolation, dtype=dtype, attn=opts.attn)
         m.lm = PeftModel.from_pretrained(m.lm, self.path, torch_device=str(device)).to(device)   # trainable token embeddings, if any, live in the adapter
         if opts.lora_scale != 1:
             for module in m.lm.modules():
                 if isinstance(getattr(module, "scaling", None), dict):
                     for k in module.scaling: module.scaling[k] *= opts.lora_scale
             m.lora_scale = opts.lora_scale
-        if merge: m.lm = m.lm.merge_and_unload()     # in fp32: exact
+        if merge: m.lm = m.lm.merge_and_unload()     # W += delta: fp32 math, one rounding (see LoadOptions.merge)
         if dtype != torch.float32: m.lm = m.lm.to(dtype)
-        return m
+        return m, merge
 
-    COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings")
+    COMPAT_FIELDS = ("base", "base_revision", "lora", "head_dim", "option_isolation", "special_embeddings", "weights")
 
     def warm_start(self, model, ours):
-        """Delta training: load this checkpoint's adapter and pointer head into `model` (a fresh DecisionModel built with
-        LoRA). `ours` is the Meta the new run will save; every architecture field is compared BEFORE loading, because peft
-        loads matching keys silently and a half-loaded adapter still trains and still reports a loss. Returns provenance."""
-        from peft import get_peft_model_state_dict, load_peft_weights, set_peft_model_state_dict
+        """Delta training: load this checkpoint's weights (adapter, or full backbone) and pointer head into `model` (a fresh
+        DecisionModel built the way `ours` says: with LoRA, or for full-weight training without). `ours` is the Meta the new
+        run will save; every architecture field is compared BEFORE loading, because peft and load_state_dict(strict=False)
+        load matching keys silently and a half-loaded model still trains and still reports a loss. Returns provenance."""
         from .suite import digest   # lazy: the Space vendors this module without kev/suite.py
         for name in self.COMPAT_FIELDS:
             theirs, mine = getattr(self.meta, name), getattr(ours, name)
             if theirs != mine and not (name == "base_revision" and None in (theirs, mine)):
                 raise ValueError(f"--init_from {self.path}: {name} is {theirs!r} there and {mine!r} here")
+        tensors = self._load_backbone_into(model.lm) if self.full else self._load_adapter_into(model.lm)
+        model.head.load_state_dict(self.meta.head)
+        return {"init_from": self.requested, "resolved": self.path, "weights_sha256": self.weights_sha256(),
+                "head_sha256": digest(self.file("head.pt")), "tensors": tensors}
+
+    def _load_backbone_into(self, lm):
+        """Copy the saved backbone over `lm` shard by shard (the base's copy in memory is replaced, never merged); every
+        tensor of `lm` must be covered exactly once. -> tensor count."""
+        from safetensors.torch import load_file
+        have, seen = set(lm.state_dict()), set()
+        for shard in self.shards():
+            part = load_file(shard)
+            unexpected = sorted(set(part) - have)
+            if unexpected: raise ValueError(f"--init_from {self.path}: {shard.name} carries tensors this backbone does not have (e.g. {unexpected[:2]})")
+            lm.load_state_dict(part, strict=False); seen |= set(part)
+        missing = sorted(have - seen)
+        if missing: raise ValueError(f"--init_from {self.path} does not cover {len(missing)} of this backbone's tensors (e.g. {missing[:2]})")
+        return len(seen)
+
+    def _load_adapter_into(self, lm):
+        from peft import get_peft_model_state_dict, load_peft_weights, set_peft_model_state_dict
         weights = load_peft_weights(self.path, device="cpu")
-        have = set(get_peft_model_state_dict(model.lm))
+        have = set(get_peft_model_state_dict(lm))
         unexpected, missing = sorted(set(weights) - have), sorted(have - set(weights))
         if unexpected:
             raise ValueError(f"--init_from {self.path} carries {len(unexpected)} adapter tensors this model does not have (e.g. {unexpected[:2]}); check --lora_targets / --lora against its adapter_config.json")
         if missing:
             raise ValueError(f"--init_from {self.path} does not cover {len(missing)} of this model's adapter tensors (e.g. {missing[:2]}); check --lora_targets")
-        set_peft_model_state_dict(model.lm, weights)
-        model.head.load_state_dict(self.meta.head)
-        return {"init_from": self.requested, "resolved": self.path, "adapter_sha256": digest(self.file("adapter_model.safetensors")),
-                "head_sha256": digest(self.file("head.pt")), "adapter_tensors": len(weights)}
+        set_peft_model_state_dict(lm, weights)
+        return len(weights)
 
 
 def load(run, device, opts=LoadOptions()):
