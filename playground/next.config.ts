@@ -7,8 +7,8 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   devIndicators: false,
   // Next dev only trusts the hostname it was started with (localhost); without this,
-  // opening the app via 127.0.0.1 renders the SSR HTML but never hydrates (no errors, buttons dead).
-  allowedDevOrigins: ["127.0.0.1"],
+  // Other local access addresses need an explicit entry so client scripts and HMR can load.
+  allowedDevOrigins: ["127.0.0.1", "192.168.10.157"],
   async rewrites() {
     return [{ source: "/kev/:path*", destination: `${KEV_API}/:path*` }];
   },

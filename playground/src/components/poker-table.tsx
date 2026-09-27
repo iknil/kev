@@ -5,12 +5,14 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { PokerBoard } from "@/components/poker/board";
+import { OrderCheck } from "@/components/poker/order-check";
 import { ActionControls } from "@/components/poker/action-controls";
 import { usePoker } from "@/components/poker/use-poker";
 import { POKER_PERSONAS } from "@/lib/poker/personas";
 import { TABLE_SIZES, inHand, position } from "@/lib/poker/rules";
 import { cardLabel } from "@/lib/poker/cards";
 import { evaluate } from "@/lib/poker/evaluate";
+import { downloadSessionLog } from "@/lib/poker/log";
 import type { Mode } from "@/lib/poker/types";
 
 export function PokerTable() {
@@ -29,6 +31,7 @@ export function PokerTable() {
         <Link href="/" className="text-muted-foreground hover:text-foreground">kev</Link>
         <Link href="/chess" className="text-muted-foreground hover:text-foreground">chess</Link>
         <Link href="/poker" aria-current="page" className="font-medium tracking-tight">poker</Link>
+        <Link href="/poker/replay" className="text-muted-foreground hover:text-foreground">hand review</Link>
       </nav>
       <p className="text-[13px] text-muted-foreground">Texas Hold’em · Play chips</p>
     </header>
@@ -54,8 +57,12 @@ export function PokerTable() {
       <Button onClick={newTable} variant={game ? "outline" : "default"}>{game ? "Reset table" : "Start table"}</Button>
       {game && <>
         <Button onClick={poker.nextHand} disabled={!game.complete || funded.length < 2}>Next hand</Button>
-        <Button variant="outline" onClick={poker.running ? poker.pause : poker.play} disabled={game.complete}>{poker.running && !game.complete ? "Pause AI" : "Play AI"}</Button>
+        <Button variant="outline" onClick={poker.running ? poker.pause : poker.play}>{poker.running ? "Pause AI" : "Play AI"}</Button>
         <Button variant="outline" onClick={() => void poker.step()} disabled={poker.running || poker.busy || !actor?.personaId}>AI step</Button>
+        <Button variant="outline" onClick={() => game && downloadSessionLog(game.id, poker.completedHands)}
+          disabled={!poker.completedHands.length}>
+          Export log · {poker.completedHands.length} {poker.completedHands.length === 1 ? "hand" : "hands"}
+        </Button>
       </>}
       <span className="ml-auto text-[12px] text-muted-foreground">Blinds 10 / 20 · starting stack 2,000 · no rake</span>
     </div>
@@ -90,7 +97,8 @@ export function PokerTable() {
                 <span className="text-right tabular-nums">{decision.probabilities[c.id].toFixed(2)}</span>
               </div>)}</div>
             </>}
-            <p className="mt-4 text-[12px] leading-5 text-muted-foreground">These are model action probabilities, not winning odds. The highest-probability action is played.</p>
+            {decision && <OrderCheck decision={decision} />}
+            <p className="mt-4 text-[12px] leading-5 text-muted-foreground">These are averaged model action probabilities, not winning odds. The highest average selects the action.</p>
           </section>
           <section className="rounded-md border border-border bg-card p-4">
             <h2 className="text-[12px] text-muted-foreground">AI personalities</h2>

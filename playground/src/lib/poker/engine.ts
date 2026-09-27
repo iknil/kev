@@ -64,6 +64,13 @@ export function startHand(previous: GameState, cards: Card[] = shuffle(deck())):
     p.status = p.stack > 0 ? "active" : "out";
   }
   for (let round = 0; round < 2; round++) for (const seat of order) s.players[seat].hole.push(draw(s));
+  if (s.ante) for (const seat of occupied) {
+    const p = s.players[seat];
+    const amount = Math.min(s.ante, p.stack);
+    p.stack -= amount; p.committed += amount;
+    if (p.stack === 0) p.status = "all-in";
+    s.history.push({ street: s.street, seat, text: `Ante ${amount}`, kind: "ante", pay: amount });
+  }
   for (const [seat, blind] of [[s.smallBlindSeat, s.smallBlind], [s.bigBlindSeat, s.bigBlind]]) {
     const p = s.players[seat]; const amount = Math.min(blind, p.stack);
     pay(p, amount); s.history.push({ street: s.street, seat, text: `Posted ${blind === s.smallBlind ? "SB" : "BB"} ${amount}`, kind: "post", pay: amount });

@@ -1,0 +1,491 @@
+{
+  "parent_suite": "evals/poker-v1",
+  "parent_manifest_sha256": "ef1f1aefd7dac7a2bc44a2e6c7bde4e0e0b0e572440a31eafc88f6254a14b4bf",
+  "fraction": "0.05",
+  "seed": 42,
+  "selection_algorithm": "per-partition largest-remainder quotas over candidate_policy.street and action label prefix; choose lowest SHA256(seed:id), stable source-order output",
+  "rounding": "partition target uses ROUND_HALF_UP; stratum quotas use floors plus largest fractional remainders, lexicographic stratum tie break",
+  "partitions": {
+    "train": {
+      "source_records": 466704,
+      "selected_records": 23335,
+      "source_sha256": "5f4f5e4775263c483099061c0a4b3334da6aeaa555fe44b229d56321faa5327e",
+      "output_sha256": "9a12f17d530b14294761ea01b4b1e8ca455a5eb60a40bac9bfa2e41523d0b5a5",
+      "strata": {
+        "flop|bet": {
+          "source_records": 2541,
+          "quota": 127,
+          "exact_quota": "127.05"
+        },
+        "flop|call": {
+          "source_records": 12439,
+          "quota": 622,
+          "exact_quota": "621.95"
+        },
+        "flop|check": {
+          "source_records": 3305,
+          "quota": 165,
+          "exact_quota": "165.25"
+        },
+        "flop|fold": {
+          "source_records": 3665,
+          "quota": 183,
+          "exact_quota": "183.25"
+        },
+        "flop|raise": {
+          "source_records": 4390,
+          "quota": 220,
+          "exact_quota": "219.50"
+        },
+        "preflop|call": {
+          "source_records": 4031,
+          "quota": 202,
+          "exact_quota": "201.55"
+        },
+        "preflop|check": {
+          "source_records": 3,
+          "quota": 0,
+          "exact_quota": "0.15"
+        },
+        "preflop|fold": {
+          "source_records": 21839,
+          "quota": 1092,
+          "exact_quota": "1091.95"
+        },
+        "preflop|raise": {
+          "source_records": 1109,
+          "quota": 55,
+          "exact_quota": "55.45"
+        },
+        "river|bet": {
+          "source_records": 35515,
+          "quota": 1776,
+          "exact_quota": "1775.75"
+        },
+        "river|call": {
+          "source_records": 41395,
+          "quota": 2070,
+          "exact_quota": "2069.75"
+        },
+        "river|check": {
+          "source_records": 71197,
+          "quota": 3560,
+          "exact_quota": "3559.85"
+        },
+        "river|fold": {
+          "source_records": 56752,
+          "quota": 2838,
+          "exact_quota": "2837.60"
+        },
+        "river|raise": {
+          "source_records": 28333,
+          "quota": 1417,
+          "exact_quota": "1416.65"
+        },
+        "turn|bet": {
+          "source_records": 10186,
+          "quota": 509,
+          "exact_quota": "509.30"
+        },
+        "turn|call": {
+          "source_records": 55745,
+          "quota": 2787,
+          "exact_quota": "2787.25"
+        },
+        "turn|check": {
+          "source_records": 33739,
+          "quota": 1687,
+          "exact_quota": "1686.95"
+        },
+        "turn|fold": {
+          "source_records": 51410,
+          "quota": 2570,
+          "exact_quota": "2570.50"
+        },
+        "turn|raise": {
+          "source_records": 29110,
+          "quota": 1455,
+          "exact_quota": "1455.50"
+        }
+      }
+    },
+    "calibration": {
+      "source_records": 25929,
+      "selected_records": 1296,
+      "source_sha256": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+      "output_sha256": "207c87c111d18ee60c3af6b689b62c2416f97314c1a4db9efb71035b61795b9b",
+      "strata": {
+        "flop|bet": {
+          "source_records": 134,
+          "quota": 7,
+          "exact_quota": "6.70"
+        },
+        "flop|call": {
+          "source_records": 715,
+          "quota": 36,
+          "exact_quota": "35.75"
+        },
+        "flop|check": {
+          "source_records": 182,
+          "quota": 9,
+          "exact_quota": "9.10"
+        },
+        "flop|fold": {
+          "source_records": 215,
+          "quota": 11,
+          "exact_quota": "10.75"
+        },
+        "flop|raise": {
+          "source_records": 220,
+          "quota": 11,
+          "exact_quota": "11.00"
+        },
+        "preflop|call": {
+          "source_records": 152,
+          "quota": 7,
+          "exact_quota": "7.60"
+        },
+        "preflop|fold": {
+          "source_records": 1269,
+          "quota": 63,
+          "exact_quota": "63.45"
+        },
+        "preflop|raise": {
+          "source_records": 79,
+          "quota": 4,
+          "exact_quota": "3.95"
+        },
+        "river|bet": {
+          "source_records": 1921,
+          "quota": 96,
+          "exact_quota": "96.05"
+        },
+        "river|call": {
+          "source_records": 2385,
+          "quota": 119,
+          "exact_quota": "119.25"
+        },
+        "river|check": {
+          "source_records": 4094,
+          "quota": 205,
+          "exact_quota": "204.70"
+        },
+        "river|fold": {
+          "source_records": 3142,
+          "quota": 157,
+          "exact_quota": "157.10"
+        },
+        "river|raise": {
+          "source_records": 1482,
+          "quota": 74,
+          "exact_quota": "74.10"
+        },
+        "turn|bet": {
+          "source_records": 533,
+          "quota": 27,
+          "exact_quota": "26.65"
+        },
+        "turn|call": {
+          "source_records": 3085,
+          "quota": 154,
+          "exact_quota": "154.25"
+        },
+        "turn|check": {
+          "source_records": 1900,
+          "quota": 95,
+          "exact_quota": "95.00"
+        },
+        "turn|fold": {
+          "source_records": 2917,
+          "quota": 146,
+          "exact_quota": "145.85"
+        },
+        "turn|raise": {
+          "source_records": 1504,
+          "quota": 75,
+          "exact_quota": "75.20"
+        }
+      }
+    },
+    "development": {
+      "source_records": 25928,
+      "selected_records": 1296,
+      "source_sha256": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+      "output_sha256": "a277f23e48f3aaf2f139da42cc18e39a3108e9f0794925e1c42155ee3e461e8b",
+      "strata": {
+        "flop|bet": {
+          "source_records": 135,
+          "quota": 7,
+          "exact_quota": "6.75"
+        },
+        "flop|call": {
+          "source_records": 690,
+          "quota": 34,
+          "exact_quota": "34.50"
+        },
+        "flop|check": {
+          "source_records": 176,
+          "quota": 9,
+          "exact_quota": "8.80"
+        },
+        "flop|fold": {
+          "source_records": 222,
+          "quota": 11,
+          "exact_quota": "11.10"
+        },
+        "flop|raise": {
+          "source_records": 227,
+          "quota": 11,
+          "exact_quota": "11.35"
+        },
+        "preflop|call": {
+          "source_records": 340,
+          "quota": 17,
+          "exact_quota": "17.00"
+        },
+        "preflop|fold": {
+          "source_records": 1094,
+          "quota": 55,
+          "exact_quota": "54.70"
+        },
+        "preflop|raise": {
+          "source_records": 65,
+          "quota": 3,
+          "exact_quota": "3.25"
+        },
+        "river|bet": {
+          "source_records": 1997,
+          "quota": 100,
+          "exact_quota": "99.85"
+        },
+        "river|call": {
+          "source_records": 2238,
+          "quota": 112,
+          "exact_quota": "111.90"
+        },
+        "river|check": {
+          "source_records": 3981,
+          "quota": 199,
+          "exact_quota": "199.05"
+        },
+        "river|fold": {
+          "source_records": 3120,
+          "quota": 156,
+          "exact_quota": "156.00"
+        },
+        "river|raise": {
+          "source_records": 1646,
+          "quota": 82,
+          "exact_quota": "82.30"
+        },
+        "turn|bet": {
+          "source_records": 579,
+          "quota": 29,
+          "exact_quota": "28.95"
+        },
+        "turn|call": {
+          "source_records": 3124,
+          "quota": 156,
+          "exact_quota": "156.20"
+        },
+        "turn|check": {
+          "source_records": 1811,
+          "quota": 91,
+          "exact_quota": "90.55"
+        },
+        "turn|fold": {
+          "source_records": 2807,
+          "quota": 140,
+          "exact_quota": "140.35"
+        },
+        "turn|raise": {
+          "source_records": 1676,
+          "quota": 84,
+          "exact_quota": "83.80"
+        }
+      }
+    },
+    "test": {
+      "source_records": 11000,
+      "selected_records": 1000,
+      "source_sha256": "a7167715eff3941c81b84f9198e40d6861c35c31535bebf2652fa558949889f9",
+      "output_sha256": "a0f59ad45f431510f1ba707ba7dd115cd0e1af266699fe546b4aa53f3aac2244",
+      "strata": {
+        "flop|bet": {
+          "source_records": 67,
+          "quota": 50
+        },
+        "flop|call": {
+          "source_records": 295,
+          "quota": 50
+        },
+        "flop|check": {
+          "source_records": 101,
+          "quota": 50
+        },
+        "flop|fold": {
+          "source_records": 75,
+          "quota": 50
+        },
+        "flop|raise": {
+          "source_records": 97,
+          "quota": 50
+        },
+        "preflop|call": {
+          "source_records": 250,
+          "quota": 63
+        },
+        "preflop|check": {
+          "source_records": 250,
+          "quota": 63
+        },
+        "preflop|fold": {
+          "source_records": 250,
+          "quota": 62
+        },
+        "preflop|raise": {
+          "source_records": 250,
+          "quota": 62
+        },
+        "river|bet": {
+          "source_records": 750,
+          "quota": 50
+        },
+        "river|call": {
+          "source_records": 980,
+          "quota": 50
+        },
+        "river|check": {
+          "source_records": 1605,
+          "quota": 50
+        },
+        "river|fold": {
+          "source_records": 1276,
+          "quota": 50
+        },
+        "river|raise": {
+          "source_records": 657,
+          "quota": 50
+        },
+        "turn|bet": {
+          "source_records": 231,
+          "quota": 50
+        },
+        "turn|call": {
+          "source_records": 1225,
+          "quota": 50
+        },
+        "turn|check": {
+          "source_records": 794,
+          "quota": 50
+        },
+        "turn|fold": {
+          "source_records": 1149,
+          "quota": 50
+        },
+        "turn|raise": {
+          "source_records": 698,
+          "quota": 50
+        }
+      }
+    }
+  },
+  "test_is_non_independent_subset": true,
+  "model_evaluation_run": false,
+  "test_selection": {
+    "parent_manifest_sha256": "ef1f1aefd7dac7a2bc44a2e6c7bde4e0e0b0e572440a31eafc88f6254a14b4bf",
+    "parent_test_sha256": "a7167715eff3941c81b84f9198e40d6861c35c31535bebf2652fa558949889f9",
+    "seed": 42,
+    "count": 1000,
+    "algorithm": "Equal street quotas, then equal label-action quotas within each street; capacity-limited redistribution with lexical ties. Lowest SHA256(seed:id) per stratum; raw lines in source order.",
+    "strata": {
+      "flop|bet": {
+        "available": 67,
+        "selected": 50
+      },
+      "flop|call": {
+        "available": 295,
+        "selected": 50
+      },
+      "flop|check": {
+        "available": 101,
+        "selected": 50
+      },
+      "flop|fold": {
+        "available": 75,
+        "selected": 50
+      },
+      "flop|raise": {
+        "available": 97,
+        "selected": 50
+      },
+      "preflop|call": {
+        "available": 250,
+        "selected": 63
+      },
+      "preflop|check": {
+        "available": 250,
+        "selected": 63
+      },
+      "preflop|fold": {
+        "available": 250,
+        "selected": 62
+      },
+      "preflop|raise": {
+        "available": 250,
+        "selected": 62
+      },
+      "river|bet": {
+        "available": 750,
+        "selected": 50
+      },
+      "river|call": {
+        "available": 980,
+        "selected": 50
+      },
+      "river|check": {
+        "available": 1605,
+        "selected": 50
+      },
+      "river|fold": {
+        "available": 1276,
+        "selected": 50
+      },
+      "river|raise": {
+        "available": 657,
+        "selected": 50
+      },
+      "turn|bet": {
+        "available": 231,
+        "selected": 50
+      },
+      "turn|call": {
+        "available": 1225,
+        "selected": 50
+      },
+      "turn|check": {
+        "available": 794,
+        "selected": 50
+      },
+      "turn|fold": {
+        "available": 1149,
+        "selected": 50
+      },
+      "turn|raise": {
+        "available": 698,
+        "selected": 50
+      }
+    },
+    "streets": {
+      "flop": 250,
+      "preflop": 250,
+      "river": 250,
+      "turn": 250
+    }
+  },
+  "fraction_applies_to": [
+    "train",
+    "calibration",
+    "development"
+  ]
+}

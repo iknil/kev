@@ -1,0 +1,507 @@
+{
+  "status": "merged",
+  "evaluation_history": {
+    "suite_test_records": 11000,
+    "quarantined_records": 0,
+    "source_rows": 11000,
+    "source_row_accounting": "1000 preflop + 10000 postflop; accepted and quarantine rows account for every unique source row",
+    "accepted_per_source": {
+      "preflop": {
+        "source": 1000,
+        "accepted": 1000,
+        "quarantined": 0
+      },
+      "postflop": {
+        "source": 10000,
+        "accepted": 10000,
+        "quarantined": 0
+      }
+    },
+    "load_split_sha_count_check": "passed for all 11000 rows; quarantine.jsonl is empty",
+    "load_records_count": "passed for all 11000 rows",
+    "kev_materialize_api_request_all_records": "passed for all 11000 rows",
+    "candidate_and_label_checks": "passed for all 11000 records; the 73 authorized exact all-in corrections match the previous quarantine row set; fold is always offered; check/call are exclusive; payment and remaining-stack arithmetic is valid",
+    "context": {
+      "limits": {
+        "max_state": 8192,
+        "max_branch": 8192,
+        "max_packed": 16384,
+        "truncate": false
+      },
+      "base_model": "Qwen/Qwen3.5-0.8B-Base",
+      "base_revision": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
+      "observed_max": {
+        "state": 319,
+        "branch": 314,
+        "packed": 608,
+        "fits": 11000
+      },
+      "status": "all records fit with strict no-truncation serving-context encoding",
+      "training_admission_claim": false
+    },
+    "reproducibility": {
+      "clean_tmp_directory": "/tmp/poker-v1-repro-p1yaat_6",
+      "byte_identical_files": {
+        "train.jsonl": true,
+        "calibration.jsonl": true,
+        "development.jsonl": true,
+        "test.jsonl": true,
+        "quarantine.jsonl": true,
+        "test/sample.jsonl": true,
+        "review/sample.json": true,
+        "manifest.json": true,
+        "validation-report.json": true
+      }
+    },
+    "existing_unit_baseline": "128 passed, 1 failed before this task; failure is the pre-existing hard-coded context in scripts/build_poker_ev.py:448, a file not changed here.",
+    "independent_astra_review": "passed",
+    "independent_astra_review_summary": "Astra independently verified that the old 10927 records have identical state and questions; all 11000 new records preserve source state/output/hash; the 73 corrections exactly match the prior quarantine set (46 by 0.5 chips, 27 by 0.7); each corrected label is the unique min=max all-in with full payment and zero remaining stack; the 98 verb normalizations are unchanged; split hashes, locked-test/API checks, and all 9 byte-identical rebuild files passed.",
+    "new_tests_passed": 11,
+    "model_evaluation_run": false,
+    "training_run": false,
+    "example_evaluation_command": "PYTHONPATH=. HF_HUB_OFFLINE=1 .venv/bin/python -m kev.benchmark --run <checkpoint> --suite evals/poker-v1 --allow-test --out runs/poker-v1",
+    "commands": [
+      "PYTHONPATH=. .venv/bin/python -m pytest tests/test_poker_v1.py -q",
+      "PYTHONPATH=. HF_HUB_OFFLINE=1 .venv/bin/python scripts/build_poker_v1.py --source-dir /tmp --out evals/poker-v1"
+    ],
+    "gold_correction_audit": {
+      "corrected_count": 73,
+      "difference_distribution": {
+        "0.7": 27,
+        "0.5": 46
+      },
+      "corrected_rows": [
+        {
+          "stage": "postflop",
+          "row": 52
+        },
+        {
+          "stage": "postflop",
+          "row": 72
+        },
+        {
+          "stage": "postflop",
+          "row": 460
+        },
+        {
+          "stage": "postflop",
+          "row": 552
+        },
+        {
+          "stage": "postflop",
+          "row": 569
+        },
+        {
+          "stage": "postflop",
+          "row": 575
+        },
+        {
+          "stage": "postflop",
+          "row": 641
+        },
+        {
+          "stage": "postflop",
+          "row": 687
+        },
+        {
+          "stage": "postflop",
+          "row": 711
+        },
+        {
+          "stage": "postflop",
+          "row": 865
+        },
+        {
+          "stage": "postflop",
+          "row": 899
+        },
+        {
+          "stage": "postflop",
+          "row": 986
+        },
+        {
+          "stage": "postflop",
+          "row": 1056
+        },
+        {
+          "stage": "postflop",
+          "row": 1099
+        },
+        {
+          "stage": "postflop",
+          "row": 1105
+        },
+        {
+          "stage": "postflop",
+          "row": 1217
+        },
+        {
+          "stage": "postflop",
+          "row": 1571
+        },
+        {
+          "stage": "postflop",
+          "row": 1647
+        },
+        {
+          "stage": "postflop",
+          "row": 1651
+        },
+        {
+          "stage": "postflop",
+          "row": 1685
+        },
+        {
+          "stage": "postflop",
+          "row": 1785
+        },
+        {
+          "stage": "postflop",
+          "row": 1864
+        },
+        {
+          "stage": "postflop",
+          "row": 1959
+        },
+        {
+          "stage": "postflop",
+          "row": 2026
+        },
+        {
+          "stage": "postflop",
+          "row": 2061
+        },
+        {
+          "stage": "postflop",
+          "row": 2511
+        },
+        {
+          "stage": "postflop",
+          "row": 2681
+        },
+        {
+          "stage": "postflop",
+          "row": 2950
+        },
+        {
+          "stage": "postflop",
+          "row": 2998
+        },
+        {
+          "stage": "postflop",
+          "row": 3010
+        },
+        {
+          "stage": "postflop",
+          "row": 3071
+        },
+        {
+          "stage": "postflop",
+          "row": 3131
+        },
+        {
+          "stage": "postflop",
+          "row": 3299
+        },
+        {
+          "stage": "postflop",
+          "row": 3472
+        },
+        {
+          "stage": "postflop",
+          "row": 3714
+        },
+        {
+          "stage": "postflop",
+          "row": 3834
+        },
+        {
+          "stage": "postflop",
+          "row": 3930
+        },
+        {
+          "stage": "postflop",
+          "row": 3956
+        },
+        {
+          "stage": "postflop",
+          "row": 4022
+        },
+        {
+          "stage": "postflop",
+          "row": 4048
+        },
+        {
+          "stage": "postflop",
+          "row": 4205
+        },
+        {
+          "stage": "postflop",
+          "row": 4487
+        },
+        {
+          "stage": "postflop",
+          "row": 4561
+        },
+        {
+          "stage": "postflop",
+          "row": 4916
+        },
+        {
+          "stage": "postflop",
+          "row": 5096
+        },
+        {
+          "stage": "postflop",
+          "row": 5675
+        },
+        {
+          "stage": "postflop",
+          "row": 5802
+        },
+        {
+          "stage": "postflop",
+          "row": 5832
+        },
+        {
+          "stage": "postflop",
+          "row": 6088
+        },
+        {
+          "stage": "postflop",
+          "row": 6093
+        },
+        {
+          "stage": "postflop",
+          "row": 6123
+        },
+        {
+          "stage": "postflop",
+          "row": 6213
+        },
+        {
+          "stage": "postflop",
+          "row": 6432
+        },
+        {
+          "stage": "postflop",
+          "row": 6480
+        },
+        {
+          "stage": "postflop",
+          "row": 6588
+        },
+        {
+          "stage": "postflop",
+          "row": 6728
+        },
+        {
+          "stage": "postflop",
+          "row": 6814
+        },
+        {
+          "stage": "postflop",
+          "row": 6890
+        },
+        {
+          "stage": "postflop",
+          "row": 7071
+        },
+        {
+          "stage": "postflop",
+          "row": 7456
+        },
+        {
+          "stage": "postflop",
+          "row": 7819
+        },
+        {
+          "stage": "postflop",
+          "row": 8322
+        },
+        {
+          "stage": "postflop",
+          "row": 8636
+        },
+        {
+          "stage": "postflop",
+          "row": 8834
+        },
+        {
+          "stage": "postflop",
+          "row": 8903
+        },
+        {
+          "stage": "postflop",
+          "row": 9032
+        },
+        {
+          "stage": "postflop",
+          "row": 9056
+        },
+        {
+          "stage": "postflop",
+          "row": 9359
+        },
+        {
+          "stage": "postflop",
+          "row": 9392
+        },
+        {
+          "stage": "postflop",
+          "row": 9570
+        },
+        {
+          "stage": "postflop",
+          "row": 9840
+        },
+        {
+          "stage": "postflop",
+          "row": 9847
+        },
+        {
+          "stage": "postflop",
+          "row": 9992
+        }
+      ],
+      "matches_previous_quarantine_row_set": true,
+      "previous_accepted_state_and_questions_unchanged": 10927
+    },
+    "source_instruction_output_hashes": "passed for all 11000 rows",
+    "previous_migration_combined_tests": {
+      "result": "137 passed, 1 failed",
+      "duration_seconds": 5.81,
+      "known_pre_existing_failure": "scripts/build_poker_ev.py:448 hard-coded context assertion",
+      "revision_scope": "previous migration revision, before poker-v1 rename and the 73 authorized corrections"
+    }
+  },
+  "training_migration": {
+    "builder_validation": "passed",
+    "native_load_split": {
+      "calibration": {
+        "loaded": 25929,
+        "manifest_count": 25929,
+        "sha256": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+        "training_policy": "rejected as expected"
+      },
+      "development": {
+        "loaded": 25928,
+        "manifest_count": 25928,
+        "sha256": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+        "training_policy": "rejected as expected"
+      },
+      "test": {
+        "loaded": 0,
+        "manifest_count": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "manifest_sha256": "3e02ebd4189a43dd0e793ea63f21fc9842d3da0c28bd72c8131317bde06286e8",
+      "test_empty": true
+    },
+    "train_validation": "streamed every exported request and materialize during build; full train partition not loaded into RAM",
+    "independent_astra_review": "passed",
+    "model_evaluation_run": false,
+    "training_run": false,
+    "source_file_provenance": {
+      "preflop": {
+        "file": "preflop_60k_train_set_prompt_and_label.json",
+        "rows": 63200,
+        "sha256": "dded3b40abf43a2db17f5c4ea721a7fffe272eb59b39f6b018fa101ffe391195",
+        "bytes": 59245299
+      },
+      "postflop": {
+        "file": "postflop_500k_train_set_prompt_and_label.json",
+        "rows": 500000,
+        "sha256": "89661dc905cbfd7f4610b8a2428b5744aa05ba80886f2c410e3c096930898123",
+        "bytes": 560607497
+      }
+    },
+    "source_disposition_conservation": {
+      "source_total": 563200,
+      "disposition_total": 563200,
+      "passed": true
+    },
+    "partition_counts": {
+      "train": 466704,
+      "calibration": 25929,
+      "development": 25928
+    },
+    "partition_hashes": {
+      "train.jsonl": "5f4f5e4775263c483099061c0a4b3334da6aeaa555fe44b229d56321faa5327e",
+      "calibration.jsonl": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+      "development.jsonl": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+      "test.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "locked_test_suite_hashes_unchanged": {
+      "files_checked": 15,
+      "changed_files": []
+    },
+    "training_context_admission": {
+      "eligible": 518561,
+      "max_state_tokens": 321,
+      "max_branch_tokens": 314,
+      "max_packed_tokens": 608,
+      "tokenizer": "Qwen/Qwen3.5-0.8B-Base",
+      "tokenizer_revision": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
+      "context": {
+        "max_state": 384,
+        "max_branch": 1024,
+        "max_packed": 2048,
+        "truncate": false
+      }
+    },
+    "targeted_builder_tests": "7 passed",
+    "combined_repo_tests": "150 passed, 1 known pre-existing failure at scripts/build_poker_ev.py:448 (context hardcode), 5.83s",
+    "full_byte_reproducibility": {
+      "generated_files_compared": 8,
+      "all_identical_before_documentation_clarification": true,
+      "partition_and_disposition_hashes_identical_after_final_docs": true,
+      "repro_directory": "/tmp/poker-train-v1-repro"
+    },
+    "independent_audit": {
+      "source_rows_and_dispositions": "all 563200 source rows matched one ledger disposition; 518561 selected records matched original instruction/output/source/provenance",
+      "schema_and_policy": "all selected records passed API schema/materialize; train sources accepted; calibration/development sources rejected by training policy",
+      "candidate_replay": "all selected candidates/labels independently replayed equal to the unchanged eval helper",
+      "test_overlap_unique_state_duplicates_cross_split_groups": "0 / 0 / 0",
+      "conflicts": "150 rows across 18 full-state keys excluded as whole groups",
+      "narrow_all_in_corrections": {
+        "count": 3403,
+        "difference_distribution": {
+          "0.5": 2080,
+          "0.7": 1323
+        }
+      },
+      "invalid_gold": {
+        "count": 6,
+        "rows": [
+          3040,
+          22039,
+          36787,
+          37241,
+          38064,
+          51009
+        ],
+        "reason": "gold 33 below min 33.5 while max is 100; correctly excluded, not corrected"
+      },
+      "review_exposed_group": "216 records forced into train",
+      "poker_v1_unchanged": "all 15 baseline file hashes and locked suite manifest verified"
+    },
+    "manifest_sha256": "3e02ebd4189a43dd0e793ea63f21fc9842d3da0c28bd72c8131317bde06286e8",
+    "documentation_update": "README usage/counts and pinned 0.8B-only admission clarification updated after the byte-identical reproduction; training data partitions are unchanged."
+  },
+  "combined_partition_counts": {
+    "train": 466704,
+    "calibration": 25929,
+    "development": 25928,
+    "test": 11000
+  },
+  "evaluation_test_sha256": "a7167715eff3941c81b84f9198e40d6861c35c31535bebf2652fa558949889f9",
+  "training_partition_hashes": {
+    "train": "5f4f5e4775263c483099061c0a4b3334da6aeaa555fe44b229d56321faa5327e",
+    "calibration": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+    "development": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f"
+  },
+  "external_suite_self_reference": false,
+  "model_evaluation_run": false,
+  "training_run": false
+}

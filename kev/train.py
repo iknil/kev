@@ -14,6 +14,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from .checkpoint import Checkpoint, Meta, write_meta
+from .training_state import (StopRequest, random_state, requests_digest, resolve_resume,
+                             restore_random_state, save_snapshot)
 from .device import allocated_bytes, default_device, empty_cache
 from .data import EVAL_ONLY, build, augment, load_records, materialize, none_pair, source_seed
 from .suite import SYNTHETIC_SOURCES, digest, load_split, read_json, read_manifest, validate_training, write_json
@@ -195,7 +197,7 @@ def batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast):
 # --- run --------------------------------------------------------------------------------------------------------------
 
 def parse_args():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(allow_abbrev=False)
     ap.add_argument("--base", default="Qwen/Qwen3-0.6B-Base")
     ap.add_argument("--n_per_source", type=int, default=1000)
     ap.add_argument("--epochs", type=int, default=1)
@@ -241,7 +243,27 @@ def parse_args():
                                                    "(local directory or hub id) instead of starting from the base model; keeps the "
                                                    "released model's in-domain skill while adapting to a new domain")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--save_every_steps", type=int, default=0, help="save complete training progress every N optimizer updates; 0 disables periodic saves")
+    ap.add_argument("--save_total_limit", type=int, default=3, help="number of complete training snapshots to retain")
+    ap.add_argument("--resume", default="", help="local run directory to resume from its latest complete snapshot; restores the original training arguments")
     a = ap.parse_args()
+    if a.resume:
+        try:
+            path = resolve_resume(a.resume)
+            saved = read_json(path / "training_config.json")["args"]
+        except (OSError, ValueError, KeyError) as error:
+            ap.error(f"cannot resume: {error}")
+        supplied = {arg.split("=", 1)[0] for arg in sys.argv[1:] if arg.startswith("--")}
+        allowed = {"resume", "save_every_steps", "save_total_limit"}
+        for name, value in vars(a).items():
+            if f"--{name}" in supplied and name not in allowed and value != saved.get(name):
+                ap.error(f"--{name} differs from the saved run; resume cannot change the training recipe")
+        overrides = {name: getattr(a, name) for name in allowed if f"--{name}" in supplied}
+        vars(a).update(saved)
+        vars(a).update(overrides)
+        a.out = str(Path(a.resume).resolve())
+    if a.save_every_steps < 0 or a.save_total_limit < 1:
+        ap.error("save_every_steps must be nonnegative and save_total_limit must be positive")
     if min(a.epochs, a.accum, a.n_per_source, a.lora, a.batch, a.synthetic_repeat) < 1 or not 0 < a.public_frac <= 1:
         ap.error("epochs, accum, n_per_source, lora, batch and synthetic_repeat must be positive; 0 < public_frac <= 1")
     if a.dtype == "bf16" and a.device != "cuda":
@@ -257,7 +279,7 @@ def parse_args():
         ap.error(f"--max_state must be in [{MAX_STATE}, {MAX_TRAIN_STATE}]")
     if a.replay and not (a.data and a.suite):
         ap.error("--replay needs both --data and --suite")
-    if Path(a.out).exists():
+    if Path(a.out).exists() and not a.resume:
         ap.error("refusing to overwrite an existing run")
     return a
 
@@ -275,13 +297,19 @@ def pinned_revision(a, manifest):
 
 def main():
     a = parse_args()
-    out_dir = Path(a.out); out_dir.mkdir(parents=True)
+    out_dir = Path(a.out); out_dir.mkdir(parents=True, exist_ok=bool(a.resume))
     torch.manual_seed(a.seed); rng = random.Random(a.seed)
     dev = a.device or default_device()
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = True; torch.backends.cudnn.allow_tf32 = True
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if a.dtype == "bf16" else contextlib.nullcontext()
     manifest = read_manifest(a.suite) if a.suite else None
+    resume_path = resolve_resume(a.resume) if a.resume else None
+    resumed = torch.load(resume_path / "training_state.pt", map_location="cpu", weights_only=True) if resume_path else None
+    previous_config = read_json(resume_path / "training_config.json") if resume_path else None
+    initial = Checkpoint(a.init_from) if a.init_from and not resumed else None
+    if initial and not a.base_revision and initial.meta.base == a.base:
+        a.base_revision = initial.meta.base_revision or ""
     revision = pinned_revision(a, manifest)
     holdout = manifest["holdout_sources"] if manifest else [s for s in a.holdout.split(",") if s]
     anchors = read_json(a.anchor).get("targets", {}) if a.anchor else {}
@@ -292,6 +320,10 @@ def main():
     model = DecisionModel(a.base, tok, dev, lora=a.lora, revision=revision, head_dim=a.head_dim, lora_targets=a.lora_targets,
                           option_isolation=bool(a.option_isolation), special_embeddings=bool(a.special_embeddings),
                           dtype=torch.bfloat16 if a.weights_dtype == "bf16" else torch.float32)
+    # Pin auto-resolved Hub revisions so a resumed run cannot silently change its backbone.
+    revision = revision or getattr(model.lm.config, "_commit_hash", None)
+    if revision:
+        a.base_revision = revision
     if a.checkpointing:
         model.lm.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.lm.config.use_cache = False
@@ -299,17 +331,28 @@ def main():
     meta = Meta(base=a.base, base_revision=revision, lora=a.lora, head_dim=a.head_dim, option_isolation=bool(a.option_isolation),
                 special_embeddings=bool(a.special_embeddings), weights_dtype=a.weights_dtype, holdout=holdout)
     init_source = None
-    if a.init_from:
+    if initial:
         # delta mode (PR #9, Radexito): start from an already trained adapter + pointer head instead of the base model, so a
         # fine-tune on new data keeps what the released checkpoint knows
-        init_source = Checkpoint(a.init_from).warm_start(model, meta)
+        init_source = initial.warm_start(model, meta)
         print(f"delta: warm start from {init_source['resolved']}: {init_source['adapter_tensors']} adapter tensors and the pointer head loaded", flush=True)
+    if resumed:
+        Checkpoint(str(resume_path)).warm_start(model, meta)
+        init_source = previous_config["init_source"]
     print(f"device={dev} trainable params={sum(p.numel() for p in model.trainable_parameters())/1e6:.1f}M", flush=True)
 
     reqs = training_requests(a, tok, manifest, holdout)
     suite_hash = digest(Path(a.suite) / "manifest.json") if manifest else None
-    write_json(out_dir / "training_config.json", {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
-                                                "ordinal_objective": "ranked_probability_score", "holdout": holdout})
+    data_hash = requests_digest(reqs)
+    config = {"args": vars(a), "suite_sha256": suite_hash, "base_revision": revision, "init_source": init_source,
+              "ordinal_objective": "ranked_probability_score", "holdout": holdout,
+              "requests_sha256": data_hash, "anchor_sha256": digest(a.anchor) if a.anchor else None,
+              "device": dev}
+    if resumed:
+        for key in ("suite_sha256", "base_revision", "requests_sha256", "anchor_sha256", "device"):
+            if config[key] != previous_config[key]:
+                raise ValueError(f"resume mismatch: {key}; training inputs or device changed")
+    write_json(out_dir / "training_config.json", config)
     print(f"{len(reqs)} training requests (holdout={holdout}), questions by type "
           f"{dict(Counter(q['qtype'] for r in reqs for q in materialize(r)['questions']))}")
 
@@ -321,30 +364,74 @@ def main():
     steps = a.epochs * math.ceil(micro_per_epoch / a.accum)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[a.lr, a.head_lr or a.lr], total_steps=max(steps, 1), pct_start=0.1)
     model.train(); t0 = time.time(); run = Counter(); step = seen = tokens_seen = peak_mem = 0
-    for ep in range(a.epochs):
-        rng.shuffle(reqs)
-        for mb in range(micro_per_epoch):
-            chunk = reqs[mb * a.batch : (mb + 1) * a.batch]
-            batch = encode_batch(model, tok, a, chunk, ep)
-            loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast)
-            # weight by source records in the accumulation group so none-pair siblings do not inflate a record's share
-            group_records = accumulation_records(len(reqs), a.batch, a.accum, mb) * (len(batch) / len(chunk))
-            (loss / group_records).backward()
-            run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.tokens for v in batch)
-            peak_mem = max(peak_mem, allocated_bytes(dev))
-            if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
-                torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)
-                opt.step(); sched.step(); opt.zero_grad(); step += 1
-                if dev == "mps": empty_cache(dev)   # MPS only: per-step cache release keeps the unified-memory footprint down; on CUDA it would just slow the step
-                if step % 10 == 0:
-                    print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(time.time()-t0)/seen:.3f}s/rec", flush=True)
-                    run = Counter()
+    elapsed = 0.0
+    order = list(range(len(reqs)))
+    start_epoch = next_microbatch = 0
+    if resumed:
+        names = [name for name, param in model.named_parameters() if param.requires_grad]
+        if names != resumed["parameter_names"] or sorted(resumed["order"]) != list(range(len(reqs))):
+            raise ValueError("resume parameter layout or data order mismatch")
+        opt.load_state_dict(resumed["optimizer"])
+        sched.load_state_dict(resumed["scheduler"])
+        order = resumed["order"]
+        start_epoch, next_microbatch = resumed["epoch"], resumed["next_microbatch"]
+        step, seen, tokens_seen = resumed["step"], resumed["seen"], resumed["tokens_seen"]
+        peak_mem, elapsed = resumed["peak_mem"], resumed["elapsed"]
+        run = Counter(resumed["run"])
+        restore_random_state(resumed["rng"], rng, dev)
+        print(f"resumed step {step}/{steps}, epoch {start_epoch}, next microbatch {next_microbatch}", flush=True)
 
-    model.lm.save_pretrained(a.out)
-    meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
-    write_meta(a.out, meta)
-    tok.save_pretrained(a.out)
-    write_json(out_dir / "training_metrics.json", {"wall_seconds": time.time() - t0, "records_seen": seen,
+    def save_model(path):
+        model.lm.save_pretrained(str(path))
+        meta.head, meta.extra = model.head.state_dict(), {"args": vars(a), "suite_sha256": suite_hash, "init_source": init_source}
+        write_meta(path, meta)
+        tok.save_pretrained(str(path))
+
+    def save_progress(epoch, microbatch):
+        state = {"optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
+                 "parameter_names": [name for name, param in model.named_parameters() if param.requires_grad],
+                 "order": order, "epoch": epoch, "next_microbatch": microbatch, "step": step,
+                 "seen": seen, "tokens_seen": tokens_seen, "peak_mem": peak_mem,
+                 "elapsed": elapsed + time.time() - t0, "run": dict(run), "rng": random_state(rng, dev)}
+        path = save_snapshot(out_dir, step, state, config, save_model, a.save_total_limit)
+        # Serializing a checkpoint must not change subsequent dropout or shuffling.
+        restore_random_state(state["rng"], rng, dev)
+        print(f"saved training progress {path}", flush=True)
+
+    last_saved = step if resumed else None
+    with StopRequest() as stop:
+        for ep in range(start_epoch, a.epochs):
+            if next_microbatch == 0:
+                rng.shuffle(order)
+            for mb in range(next_microbatch, micro_per_epoch):
+                chunk = [reqs[i] for i in order[mb * a.batch : (mb + 1) * a.batch]]
+                batch = encode_batch(model, tok, a, chunk, ep)
+                loss, terms = batch_loss(model, a, batch, dev, anchors, anchor_sources, autocast)
+                # Normalize by records in this accumulation group, including a short final group.
+                group_records = accumulation_records(len(reqs), a.batch, a.accum, mb) * (len(batch) / len(chunk))
+                (loss / group_records).backward()
+                run += terms; run["n"] += len(batch); seen += len(batch); tokens_seen += sum(v.tokens for v in batch)
+                peak_mem = max(peak_mem, allocated_bytes(dev))
+                if (mb + 1) % a.accum == 0 or mb + 1 == micro_per_epoch:
+                    torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 1.0)
+                    opt.step(); sched.step(); opt.zero_grad(); step += 1
+                    if dev == "mps": empty_cache(dev)
+                    if step % 10 == 0:
+                        print(f"ep{ep} step {step}/{steps} loss {run['ce']/run['n']:.3f} kl {run['kl']/max(run['kl_n'],1):.3f} anchor {run['anchor']/max(run['anchor_n'],1):.3f} {(elapsed+time.time()-t0)/seen:.3f}s/rec", flush=True)
+                        run = Counter()
+                    if stop.requested or (a.save_every_steps and step % a.save_every_steps == 0):
+                        at_end = mb + 1 == micro_per_epoch
+                        save_progress(ep + 1 if at_end else ep, 0 if at_end else mb + 1)
+                        last_saved = step
+                    if stop.requested:
+                        print(f"training paused; resume with: python -m kev.train --resume {out_dir}", flush=True)
+                        return
+            next_microbatch = 0
+        if (a.save_every_steps or a.resume) and last_saved != step:
+            save_progress(a.epochs, 0)
+
+    save_model(a.out)
+    write_json(out_dir / "training_metrics.json", {"wall_seconds": elapsed + time.time() - t0, "records_seen": seen,
                "requested_records": a.epochs * len(reqs), "truncated_records": 0, "rejected_records": 0,
                "optimizer_steps": step, "forward_tokens": tokens_seen,
                "peak_device_bytes": peak_mem, "device": dev, "dtype": a.dtype, "batch": a.batch,

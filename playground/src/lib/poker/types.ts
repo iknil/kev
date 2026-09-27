@@ -15,7 +15,7 @@ export type Player = {
   committed: number;
   actedAt: number | null;
 };
-export type EventKind = "post" | "fold" | "check" | "call" | "bet" | "raise" | "deal" | "refund" | "win";
+export type EventKind = "ante" | "post" | "fold" | "check" | "call" | "bet" | "raise" | "deal" | "refund" | "win";
 export type GameEvent = {
   street: Street;
   seat: number | null;
@@ -37,6 +37,7 @@ export type GameState = {
   bigBlindSeat: number;
   smallBlind: number;
   bigBlind: number;
+  ante?: number;
   street: Street;
   board: Card[];
   deck: Card[];

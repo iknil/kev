@@ -194,6 +194,7 @@ export function ChessGame() {
           <Link href="/" className="text-muted-foreground hover:text-foreground">kev</Link>
           <span className="font-medium tracking-tight">chess</span>
           <Link href="/poker" className="text-muted-foreground hover:text-foreground">poker</Link>
+          <Link href="/poker/replay" className="text-muted-foreground hover:text-foreground">hand review</Link>
         </nav>
         <p className="text-[13px] text-muted-foreground">{model ? <span className="font-mono">{model}</span> : "connecting"}</p>
       </header>

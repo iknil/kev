@@ -1,0 +1,375 @@
+{
+  "suite_test_records": 11000,
+  "quarantined_records": 0,
+  "source_rows": 11000,
+  "source_row_accounting": "1000 preflop + 10000 postflop; accepted and quarantine rows account for every unique source row",
+  "accepted_per_source": {
+    "preflop": {
+      "source": 1000,
+      "accepted": 1000,
+      "quarantined": 0
+    },
+    "postflop": {
+      "source": 10000,
+      "accepted": 10000,
+      "quarantined": 0
+    }
+  },
+  "load_split_sha_count_check": "passed for all 11000 rows; quarantine.jsonl is empty",
+  "load_records_count": "passed for all 11000 rows",
+  "kev_materialize_api_request_all_records": "passed for all 11000 rows",
+  "candidate_and_label_checks": "passed for all 11000 records; the 73 authorized exact all-in corrections match the previous quarantine row set; fold is always offered; check/call are exclusive; payment and remaining-stack arithmetic is valid",
+  "context": {
+    "limits": {
+      "max_state": 8192,
+      "max_branch": 8192,
+      "max_packed": 16384,
+      "truncate": false
+    },
+    "base_model": "Qwen/Qwen3.5-0.8B-Base",
+    "base_revision": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
+    "observed_max": {
+      "state": 319,
+      "branch": 314,
+      "packed": 608,
+      "fits": 11000
+    },
+    "status": "all records fit with strict no-truncation serving-context encoding",
+    "training_admission_claim": false
+  },
+  "reproducibility": {
+    "clean_tmp_directory": "/tmp/poker-v1-repro-p1yaat_6",
+    "byte_identical_files": {
+      "train.jsonl": true,
+      "calibration.jsonl": true,
+      "development.jsonl": true,
+      "test.jsonl": true,
+      "quarantine.jsonl": true,
+      "test/sample.jsonl": true,
+      "review/sample.json": true,
+      "manifest.json": true,
+      "validation-report.json": true
+    }
+  },
+  "existing_unit_baseline": "128 passed, 1 failed before this task; failure is the pre-existing hard-coded context in scripts/build_poker_ev.py:448, a file not changed here.",
+  "independent_astra_review": "passed",
+  "independent_astra_review_summary": "Astra independently verified that the old 10927 records have identical state and questions; all 11000 new records preserve source state/output/hash; the 73 corrections exactly match the prior quarantine set (46 by 0.5 chips, 27 by 0.7); each corrected label is the unique min=max all-in with full payment and zero remaining stack; the 98 verb normalizations are unchanged; split hashes, locked-test/API checks, and all 9 byte-identical rebuild files passed.",
+  "new_tests_passed": 11,
+  "model_evaluation_run": false,
+  "training_run": false,
+  "example_evaluation_command": "PYTHONPATH=. HF_HUB_OFFLINE=1 .venv/bin/python -m kev.benchmark --run <checkpoint> --suite evals/poker-v1 --allow-test --out runs/poker-v1",
+  "commands": [
+    "PYTHONPATH=. .venv/bin/python -m pytest tests/test_poker_v1.py -q",
+    "PYTHONPATH=. HF_HUB_OFFLINE=1 .venv/bin/python scripts/build_poker_v1.py --source-dir /tmp --out evals/poker-v1"
+  ],
+  "gold_correction_audit": {
+    "corrected_count": 73,
+    "difference_distribution": {
+      "0.7": 27,
+      "0.5": 46
+    },
+    "corrected_rows": [
+      {
+        "stage": "postflop",
+        "row": 52
+      },
+      {
+        "stage": "postflop",
+        "row": 72
+      },
+      {
+        "stage": "postflop",
+        "row": 460
+      },
+      {
+        "stage": "postflop",
+        "row": 552
+      },
+      {
+        "stage": "postflop",
+        "row": 569
+      },
+      {
+        "stage": "postflop",
+        "row": 575
+      },
+      {
+        "stage": "postflop",
+        "row": 641
+      },
+      {
+        "stage": "postflop",
+        "row": 687
+      },
+      {
+        "stage": "postflop",
+        "row": 711
+      },
+      {
+        "stage": "postflop",
+        "row": 865
+      },
+      {
+        "stage": "postflop",
+        "row": 899
+      },
+      {
+        "stage": "postflop",
+        "row": 986
+      },
+      {
+        "stage": "postflop",
+        "row": 1056
+      },
+      {
+        "stage": "postflop",
+        "row": 1099
+      },
+      {
+        "stage": "postflop",
+        "row": 1105
+      },
+      {
+        "stage": "postflop",
+        "row": 1217
+      },
+      {
+        "stage": "postflop",
+        "row": 1571
+      },
+      {
+        "stage": "postflop",
+        "row": 1647
+      },
+      {
+        "stage": "postflop",
+        "row": 1651
+      },
+      {
+        "stage": "postflop",
+        "row": 1685
+      },
+      {
+        "stage": "postflop",
+        "row": 1785
+      },
+      {
+        "stage": "postflop",
+        "row": 1864
+      },
+      {
+        "stage": "postflop",
+        "row": 1959
+      },
+      {
+        "stage": "postflop",
+        "row": 2026
+      },
+      {
+        "stage": "postflop",
+        "row": 2061
+      },
+      {
+        "stage": "postflop",
+        "row": 2511
+      },
+      {
+        "stage": "postflop",
+        "row": 2681
+      },
+      {
+        "stage": "postflop",
+        "row": 2950
+      },
+      {
+        "stage": "postflop",
+        "row": 2998
+      },
+      {
+        "stage": "postflop",
+        "row": 3010
+      },
+      {
+        "stage": "postflop",
+        "row": 3071
+      },
+      {
+        "stage": "postflop",
+        "row": 3131
+      },
+      {
+        "stage": "postflop",
+        "row": 3299
+      },
+      {
+        "stage": "postflop",
+        "row": 3472
+      },
+      {
+        "stage": "postflop",
+        "row": 3714
+      },
+      {
+        "stage": "postflop",
+        "row": 3834
+      },
+      {
+        "stage": "postflop",
+        "row": 3930
+      },
+      {
+        "stage": "postflop",
+        "row": 3956
+      },
+      {
+        "stage": "postflop",
+        "row": 4022
+      },
+      {
+        "stage": "postflop",
+        "row": 4048
+      },
+      {
+        "stage": "postflop",
+        "row": 4205
+      },
+      {
+        "stage": "postflop",
+        "row": 4487
+      },
+      {
+        "stage": "postflop",
+        "row": 4561
+      },
+      {
+        "stage": "postflop",
+        "row": 4916
+      },
+      {
+        "stage": "postflop",
+        "row": 5096
+      },
+      {
+        "stage": "postflop",
+        "row": 5675
+      },
+      {
+        "stage": "postflop",
+        "row": 5802
+      },
+      {
+        "stage": "postflop",
+        "row": 5832
+      },
+      {
+        "stage": "postflop",
+        "row": 6088
+      },
+      {
+        "stage": "postflop",
+        "row": 6093
+      },
+      {
+        "stage": "postflop",
+        "row": 6123
+      },
+      {
+        "stage": "postflop",
+        "row": 6213
+      },
+      {
+        "stage": "postflop",
+        "row": 6432
+      },
+      {
+        "stage": "postflop",
+        "row": 6480
+      },
+      {
+        "stage": "postflop",
+        "row": 6588
+      },
+      {
+        "stage": "postflop",
+        "row": 6728
+      },
+      {
+        "stage": "postflop",
+        "row": 6814
+      },
+      {
+        "stage": "postflop",
+        "row": 6890
+      },
+      {
+        "stage": "postflop",
+        "row": 7071
+      },
+      {
+        "stage": "postflop",
+        "row": 7456
+      },
+      {
+        "stage": "postflop",
+        "row": 7819
+      },
+      {
+        "stage": "postflop",
+        "row": 8322
+      },
+      {
+        "stage": "postflop",
+        "row": 8636
+      },
+      {
+        "stage": "postflop",
+        "row": 8834
+      },
+      {
+        "stage": "postflop",
+        "row": 8903
+      },
+      {
+        "stage": "postflop",
+        "row": 9032
+      },
+      {
+        "stage": "postflop",
+        "row": 9056
+      },
+      {
+        "stage": "postflop",
+        "row": 9359
+      },
+      {
+        "stage": "postflop",
+        "row": 9392
+      },
+      {
+        "stage": "postflop",
+        "row": 9570
+      },
+      {
+        "stage": "postflop",
+        "row": 9840
+      },
+      {
+        "stage": "postflop",
+        "row": 9847
+      },
+      {
+        "stage": "postflop",
+        "row": 9992
+      }
+    ],
+    "matches_previous_quarantine_row_set": true,
+    "previous_accepted_state_and_questions_unchanged": 10927
+  },
+  "source_instruction_output_hashes": "passed for all 11000 rows",
+  "previous_migration_combined_tests": {
+    "result": "137 passed, 1 failed",
+    "duration_seconds": 5.81,
+    "known_pre_existing_failure": "scripts/build_poker_ev.py:448 hard-coded context assertion",
+    "revision_scope": "previous migration revision, before poker-v1 rename and the 73 authorized corrections"
+  }
+}

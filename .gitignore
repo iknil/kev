@@ -121,6 +121,14 @@ skills/kev-finetune/runs/
 evals/round4/longstate-v1/train.jsonl
 evals/round4/distill-9b-v1/soft.jsonl
 evals/round4/distill-9b-v1/hard.jsonl
+# Poker v1 data partitions are synced at a pinned Hub revision by scripts/sync_poker_data.py
+evals/poker-v1/train.jsonl
+evals/poker-v1/calibration.jsonl
+evals/poker-v1/development.jsonl
+evals/poker-v1/test.jsonl
+evals/poker-v1/dispositions.jsonl
+evals/poker-v1/.cache/
+evals/poker-v1-lite/train.jsonl
 # release confirmation (scripts/release_confirm.py): the three arms' development rows its temperatures are fitted on
 !runs/r4-soft/00-trial-0/development/
 runs/r4-soft/00-trial-0/development/*

@@ -25,8 +25,11 @@ dependencies = [
     "peft>=0.21",
     "pydantic>=2.9",
     "scikit-learn>=1.9.1",
-    "torch>=2.6,<2.9",
-    "triton==3.4.0; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch==2.12.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch>=2.6,<2.9; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "triton==3.7.1; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "flash-linear-attention==0.5.2; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "causal-conv1d==1.7.0; sys_platform == 'linux' and platform_machine == 'aarch64'",
     "transformers>=5.17,<6",
 ]
 
@@ -61,12 +64,17 @@ markers = ["server: needs a running kev.serve instance (KEV_BASE_URL)"]
 [tool.setuptools]
 packages = ["kev"]
 
-# PyPI's torch 2.8 ARM64 wheel is CPU-only; DGX Spark needs the CUDA build.
+# DGX Spark needs a CUDA build whose Triton supports SM 12.1.
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu129", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
-triton = [{ index = "pytorch-cu129", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
+
+[tool.uv.extra-build-dependencies]
+causal-conv1d = [{ requirement = "torch", match-runtime = true }]
+
+[tool.uv.extra-build-variables]
+causal-conv1d = { CAUSAL_CONV1D_FORCE_BUILD = "TRUE" }
 
 [[tool.uv.index]]
-name = "pytorch-cu129"
-url = "https://download.pytorch.org/whl/cu129"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true

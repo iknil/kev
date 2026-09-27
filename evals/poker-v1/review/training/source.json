@@ -1,0 +1,17 @@
+{
+  "dataset": "RZ412/PokerBench",
+  "revision": "7ac61f961c81a50fc0f667820b2fb0e432dfec0d",
+  "file": "preflop_60k_train_set_prompt_and_label.json",
+  "file_url": "https://huggingface.co/datasets/RZ412/PokerBench/resolve/7ac61f961c81a50fc0f667820b2fb0e432dfec0d/preflop_60k_train_set_prompt_and_label.json",
+  "file_sha256": "dded3b40abf43a2db17f5c4ea721a7fffe272eb59b39f6b018fa101ffe391195",
+  "file_size_bytes": 59245299,
+  "local_file": "/tmp/pokerbench-preflop-train-source/preflop_60k_train_set_prompt_and_label.json",
+  "split": "train",
+  "row_index": 2,
+  "row_index_base": 0,
+  "extraction": "Selected by zero-based index from the top-level JSON array; no CSV join.",
+  "record": {
+    "instruction": "\n\nYou are a specialist in playing 6-handed No Limit Texas Holdem. The following will be a game scenario and you need to make the optimal decision.\n\nHere is a game summary:\n\nThe small blind is 0.5 chips and the big blind is 1 chips. Everyone started with 100 chips.\nThe player positions involved in this game are UTG, HJ, CO, BTN, SB, BB.\nIn this hand, your position is SB, and your holding is [Queen of Spade and Queen of Heart].\nBefore the flop, there has been no action yet. Assume that all other players that is not mentioned folded.\n\nNow it is your turn to make a move.\nTo remind you, the current pot size is 1.5 chips, and your holding is [Queen of Spade and Queen of Heart].\n\nDecide on an action based on the strength of your hand on this board, your position, and actions before you. Do not explain your answer.\nYour optimal action is:",
+    "output": "raise 3.0"
+  }
+}

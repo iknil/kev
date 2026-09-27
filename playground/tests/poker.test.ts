@@ -5,7 +5,7 @@ import { evaluate } from "../src/lib/poker/evaluate";
 import { createGame, startHand, act } from "../src/lib/poker/engine";
 import { legalActions, potTotal, validateAction, position } from "../src/lib/poker/rules";
 import { actionCandidates } from "../src/lib/poker/candidates";
-import { observation } from "../src/lib/poker/observation";
+import { observation, renderObservation } from "../src/lib/poker/observation";
 import { askKev, decisionRequest, decisionIsCurrent } from "../src/lib/poker/kev-api";
 import { PokerController } from "../src/lib/poker/controller";
 import { settle } from "../src/lib/poker/settlement";
@@ -24,11 +24,13 @@ function streetState(street: GameState["street"] = "flop") {
   return s;
 }
 function reply(request: SystemOneRequest): SystemOneResponse {
-  const question = request.questions.action;
-  assert.equal(question.type, "choice");
-  const ids = Object.keys(question.criteria!);
   return { model: "kev-latest", latency_ms: 1, usage: { input_tokens: 1, output_tokens: 1 },
-    answers: { action: { type: "choice", choice: ids[0], confidence: 1, probabilities: Object.fromEntries(ids.map((id, i) => [id, i === 0 ? 1 : 0])) } } };
+    answers: Object.fromEntries(Object.entries(request.questions).map(([key, question]) => {
+      assert.equal(question.type, "choice");
+      const ids = Object.keys(question.criteria!);
+      return [key, { type: "choice", choice: ids[0], confidence: 1,
+        probabilities: Object.fromEntries(ids.map((id, i) => [id, i === 0 ? 1 : 0])) }];
+    })) };
 }
 
 test("deck, shuffling, input validation and immutable moves", () => {
@@ -145,21 +147,93 @@ test("candidate schedules: postflop raises use pot after calling; amounts unique
   assert.deepEqual(opening.map((c) => c.id), ["fold", "call", "raise_to_40", "raise_to_50", "raise_to_60", "raise_to_2000"]);
 });
 
-test("20 distinct personas and API observation excludes hidden information", () => {
+test("20 personas are rendered verbatim in API state; hidden information stays excluded", () => {
   assert.equal(POKER_PERSONAS.length, 20); assert.equal(new Set(POKER_PERSONAS.map((p) => p.id)).size, 20);
   const s = game(); const original = decisionRequest(s);
+  assert.equal(typeof original.request.state, "string");
+  const state = original.request.state as string;
+  assert.match(state, /Your playing personality\nStyle: /);
+  const activePersona = POKER_PERSONAS.find((p) => p.id === s.players[s.actor!].personaId)!;
+  assert.ok(state.includes(`Style: ${activePersona.style}.`));
+  assert.ok(state.includes(`Preferences: ${activePersona.preferences}`));
+  for (const persona of POKER_PERSONAS) {
+    const withPersona = structuredClone(s); withPersona.players[withPersona.actor!].personaId = persona.id;
+    const rendered = decisionRequest(withPersona).request.state as string;
+    assert.ok(rendered.includes(`Style: ${persona.style}.`));
+    assert.ok(rendered.includes(`Preferences: ${persona.preferences}`));
+  }
+  const alternate = structuredClone(s);
+  alternate.players[alternate.actor!].personaId = POKER_PERSONAS.find((p) => p.id !== activePersona.id)!.id;
+  const alternateRequest = decisionRequest(alternate);
+  assert.equal((alternateRequest.request.state as string).split("\nYour playing personality\n")[0], state.split("\nYour playing personality\n")[0]);
+  assert.deepEqual(alternateRequest.request.questions, original.request.questions);
+  assert.deepEqual(alternateRequest.candidates, original.candidates);
   const changed = structuredClone(s);
-  changed.deck.reverse(); changed.players[0].hole = cards("Ah Ad");
+  changed.deck.reverse();
+  changed.players.forEach((player) => { if (player.seat !== changed.actor) player.hole = cards("Ah Ad"); });
   assert.deepEqual(decisionRequest(changed), original);
-  const state = observation(s);
-  assert.deepEqual(state.hero.hole_cards, s.players[s.actor!].hole);
-  const blob = JSON.stringify(state);
+  const facts = observation(s);
+  assert.equal(facts.private_cards.length, 2);
+  assert.match(facts.perspective, new RegExp(`You are Seat ${s.actor! + 1}`));
+  const blob = JSON.stringify(facts);
   assert.ok(!blob.includes('"deck"'));
-  assert.equal("recent_actions" in state, false);
-  assert.ok(state.streets[0].order.some((e) => e.did === "post"));
+  assert.equal("recent_actions" in facts, false);
+  assert.ok(facts.public_history[0].actions.some((line) => line.includes("posted")));
+  assert.ok((original.request.state as string).includes("Current player status and chip contributions:"));
+  assert.ok((original.request.state as string).includes("The pot contains"));
 });
 
-test("observation reports per-street lines, put-in, limp and check-raise", () => {
+test("rendered observation preserves street chronology, payment units, refunds and betting availability", () => {
+  let s = streetState("flop");
+  s.board = cards("2s 3h 7d");
+  s = move(s, { type: "check" }); s = move(s, { type: "bet", to: 100 });
+  s = move(s, { type: "fold" }); s = move(s, { type: "fold" }); s = move(s, { type: "fold" });
+  s = move(s, { type: "fold" }); s = move(s, { type: "raise", to: 300 });
+  const text = decisionRequest(s).request.state as string;
+  assert.ok(text.indexOf("Flop: community cards dealt:") < text.indexOf("Seat 1 checked and paid 0 chips."));
+  assert.ok(text.indexOf("Seat 1 checked and paid 0 chips.") < text.indexOf("Seat 2 bet to 100 chips total this street, paying 100 chips now."));
+  assert.ok(text.indexOf("Current player status and chip contributions:") < text.indexOf("The pot contains"));
+  assert.ok(text.includes("A bet or raise is available."));
+  assert.ok(text.includes("raise-to amount is the player's new street total"));
+  assert.ok(text.includes("Future community cards not yet dealt: turn, river."));
+
+  let refunded = game(2); refunded = move(refunded, { type: "raise", to: 100 }); refunded = move(refunded, { type: "fold" });
+  assert.ok(refunded.history.some((e) => e.kind === "refund"));
+  refunded.complete = false; refunded.actor = 0; refunded.players[0].status = "active";
+  const refundText = renderObservation(observation(refunded), { style: "Balanced", preferences: "Stay factual." });
+  assert.ok(refundText.includes("received 80 uncalled chips back"));
+
+  let shortCall = game(2); shortCall.complete = true; shortCall.hand = 0;
+  shortCall.players[0].stack = 100; shortCall.players[1].stack = 15;
+  shortCall = startHand(shortCall, deck());
+  const shortCallText = renderObservation(observation(shortCall), { style: "Balanced", preferences: "Stay factual." });
+  assert.ok(shortCallText.includes("Calling costs 5 additional chips."));
+  assert.ok(shortCallText.includes("No bet or raise is available in this situation."));
+});
+
+test("heads-up wording follows the hand's blind structure, not the number still in", () => {
+  const headsUp = game(2);
+  assert.match(observation(headsUp).perspective, /hand started heads-up/);
+  const sixMax = game(6);
+  sixMax.players.forEach((player) => { if (![3, 4].includes(player.seat)) player.status = "folded"; });
+  assert.equal(sixMax.actor, 3);
+  assert.doesNotMatch(observation(sixMax).perspective, /hand started heads-up/);
+});
+
+test("empty and long public histories render without truncation", () => {
+  const empty = streetState("flop");
+  empty.history = [];
+  const emptyText = renderObservation(observation(empty), { style: "Balanced", preferences: "Stay factual." });
+  assert.ok(emptyText.includes("No actions yet on this street."));
+  const long = streetState("flop");
+  long.history = Array.from({ length: 150 }, (_, i) => ({ street: "flop" as const, kind: "check" as const,
+    seat: i % long.players.length, pay: 0, text: `event ${i}` }));
+  const longText = renderObservation(observation(long), { style: "Balanced", preferences: "Stay factual." });
+  assert.ok(longText.includes("150. Seat 6 checked and paid 0 chips."));
+  assert.ok(!longText.includes("event 149"));
+});
+
+test("observation reports public actions once in street order", () => {
   let s = streetState();
   s = move(s, { type: "check" });
   s = move(s, { type: "bet", to: 100 });
@@ -168,17 +242,14 @@ test("observation reports per-street lines, put-in, limp and check-raise", () =>
   s = move(s, { type: "fold" });
   s = move(s, { type: "fold" });
   s = move(s, { type: "raise", to: 300 });
-  const flop = observation(s).streets.find((st) => st.street === "flop")!;
-  const hero = flop.players.find((p) => p.seat === 1)!;
-  const bettor = flop.players.find((p) => p.seat === 2)!;
-  assert.equal(hero.check_raised, true); assert.equal(hero.checked, true); assert.equal(hero.raised, true);
-  assert.equal(hero.put_in, 300); assert.match(hero.line, /check; raise to 300/);
-  assert.equal(bettor.bet, true); assert.equal(bettor.check_raised, false); assert.equal(bettor.put_in, 100);
-  assert.deepEqual(flop.order.map((e) => e.did), ["check", "bet", "fold", "fold", "fold", "fold", "raise"]);
+  const flop = observation(s).public_history.find((st) => st.street === "flop")!;
+  assert.equal(flop.actions.length, 7);
+  assert.equal(flop.actions[0], "Seat 1 checked and paid 0 chips.");
+  assert.equal(flop.actions[1], "Seat 2 bet to 100 chips total this street, paying 100 chips now.");
+  assert.equal(flop.actions[6], "Seat 1 raised to 300 chips total this street, paying 300 chips now.");
   let pre = game();
   pre = move(pre, { type: "call" });
-  const utg = observation(pre).streets[0].players.find((p) => p.seat === 4)!;
-  assert.equal(utg.limped, true); assert.equal(utg.put_in, 20);
+  assert.ok(observation(pre).public_history[0].actions.includes("Seat 4 called and paid 20 chips."));
 });
 
 test("Kev adapter rejects unknown actions and malformed distributions", async () => {
@@ -262,4 +333,110 @@ test("provider failure leaves the game unchanged and can be retried", async () =
   assert.deepEqual(s, before);
   await controller.step(() => s, commit, async (req) => reply(req));
   assert.equal(s.revision, before.revision + 1);
+});
+
+// Source-backed replay is a separate use of the same rules and request encoder.
+import { REPLAY_HANDS } from "../src/lib/poker/replay-hands";
+import { replayFrames, replayRequest, replayReport } from "../src/lib/poker/replay";
+
+test("all pinned replays follow legal action order, conserve chips and match source settlement", () => {
+  assert.equal(REPLAY_HANDS.length, 51);
+  assert.equal(REPLAY_HANDS.reduce((n, hand) => n + hand.actions.length, 0), 502);
+  for (const hand of REPLAY_HANDS) {
+    const original = structuredClone(hand);
+    const frames = replayFrames(hand);
+    const total = hand.players.reduce((n, player) => n + player.stack, 0);
+    assert.equal(frames.length, hand.actions.length + 1);
+    for (const frame of frames) {
+      assert.equal(sum(frame.game), total, hand.id);
+      if (frame.historicalAction) validateAction(frame.game, frame.historicalAction);
+    }
+    const final = frames.at(-1)!.game;
+    assert.equal(final.complete, true);
+    assert.deepEqual(final.board, hand.board);
+    if (hand.endingStacks) assert.deepEqual(final.players.map((p) => p.stack), hand.endingStacks);
+    assert.deepEqual(hand, original);
+  }
+});
+
+test("classic hand accounts for antes and unknown cards without leaking source answers", () => {
+  const hand = REPLAY_HANDS[0];
+  const frames = replayFrames(hand);
+  assert.equal(potTotal(frames[0].game), 4500);
+  const request = replayRequest(hand, frames[0]);
+  assert.match(String(request.request.state), /ante of 500/);
+  assert.match(String(request.request.state), /posted an ante of 500/);
+  assert.doesNotMatch(JSON.stringify(request.request), /Ivey|Dwan|Antonius|2009|1067100|Ace of clubs/);
+  assert.ok(!request.candidates.some((candidate) => candidate.id === "raise_to_7000"));
+  const unknown = frames.find((frame) => frame.game.actor !== null && hand.players[frame.game.actor].hole.length === 0)!;
+  assert.throws(() => replayRequest(hand, unknown), /not recorded/);
+  assert.throws(() => replayRequest(hand, frames.at(-1)!), /cannot be evaluated/);
+  assert.equal(frames.at(-1)!.game.payouts[0], 1109500);
+});
+
+test("every replay request is invariant to opponents' cards, undealt cards and source metadata", () => {
+  for (const hand of REPLAY_HANDS) for (const frame of replayFrames(hand).slice(0, -1)) {
+    const actor = frame.game.actor!;
+    if (hand.players[actor].hole.length !== 2) continue;
+    const original = replayRequest(hand, frame);
+    const hiddenChanged = structuredClone(frame);
+    hiddenChanged.game.deck.reverse();
+    for (const p of hiddenChanged.game.players) if (p.seat !== actor) p.hole = ["As", "Ks"];
+    const changedSource = { ...hand, title: "secret title", source: "secret URL", board: [] };
+    assert.deepEqual(replayRequest(changedSource, hiddenChanged), original);
+    assert.deepEqual(original.candidates, actionCandidates(frame.game));
+  }
+});
+
+test("replay export preserves exact requests and notes without inventing EV scores", async () => {
+  const hand = REPLAY_HANDS[0];
+  const frame = replayFrames(hand)[0];
+  const decision = await askKev(frame.game, undefined, async (request) => reply(request));
+  const report = replayReport(hand, { 0: decision }, { 0: "Review bet sizing" });
+  assert.equal(report.decisions[0].note, "Review bet sizing");
+  assert.deepEqual(report.decisions[0].modelDecision?.request, replayRequest(hand, frame).request);
+  assert.equal(report.decisions[1].modelDecision, null);
+  assert.match(report.interpretation, /No solver EV/);
+  const broken = structuredClone(hand); broken.actions[0].seat = 1;
+  assert.throws(() => replayFrames(broken), /does not match replay/);
+});
+
+test("balanced rotations cancel a pure position preference and cover each slot once", async () => {
+  const s = game();
+  const { request, candidates } = decisionRequest(s);
+  const orders = Object.values(request.questions).map((q) => Object.keys(q.criteria!));
+  for (let slot = 0; slot < candidates.length; slot++) {
+    assert.equal(new Set(orders.map((order) => order[slot])).size, candidates.length);
+  }
+  const decision = await askKev(s, undefined, async (req) => reply(req));
+  for (const probability of Object.values(decision.probabilities)) assert.ok(Math.abs(probability - 1 / candidates.length) < 1e-12);
+  assert.equal(new Set(decision.orderChecks.map((check) => check.choice)).size, candidates.length);
+  assert.deepEqual(decision.request, request);
+});
+
+test("order averaging preserves a consistent all-in preference rather than suppressing the action", async () => {
+  const s = game();
+  const allIn = actionCandidates(s).at(-1)!.id;
+  const decision = await askKev(s, undefined, async (req) => {
+    const response = reply(req);
+    for (const answer of Object.values(response.answers)) if (answer.type === "choice") {
+      answer.choice = allIn;
+      answer.probabilities = Object.fromEntries(Object.keys(answer.probabilities).map((id) => [id, id === allIn ? 1 : 0]));
+    }
+    return response;
+  });
+  assert.equal(decision.selected.id, allIn);
+  assert.equal(decision.probabilities[allIn], 1);
+  assert.match(decision.selected.description, /0 chips remain/);
+});
+
+test("a missing or invalid later rotation rejects the entire decision", async () => {
+  await assert.rejects(askKev(game(), undefined, async (req) => {
+    const response = reply(req); delete response.answers.action_1; return response;
+  }), /all Choice actions/);
+  await assert.rejects(askKev(game(), undefined, async (req) => {
+    const response = reply(req); const answer = response.answers.action_1;
+    if (answer.type === "choice") answer.probabilities.fold = Infinity;
+    return response;
+  }), /invalid action distribution/);
 });

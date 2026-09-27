@@ -1,0 +1,114 @@
+{
+  "builder_validation": "passed",
+  "native_load_split": {
+    "calibration": {
+      "loaded": 25929,
+      "manifest_count": 25929,
+      "sha256": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+      "training_policy": "rejected as expected"
+    },
+    "development": {
+      "loaded": 25928,
+      "manifest_count": 25928,
+      "sha256": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+      "training_policy": "rejected as expected"
+    },
+    "test": {
+      "loaded": 0,
+      "manifest_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "manifest_sha256": "3e02ebd4189a43dd0e793ea63f21fc9842d3da0c28bd72c8131317bde06286e8",
+    "test_empty": true
+  },
+  "train_validation": "streamed every exported request and materialize during build; full train partition not loaded into RAM",
+  "independent_astra_review": "passed",
+  "model_evaluation_run": false,
+  "training_run": false,
+  "source_file_provenance": {
+    "preflop": {
+      "file": "preflop_60k_train_set_prompt_and_label.json",
+      "rows": 63200,
+      "sha256": "dded3b40abf43a2db17f5c4ea721a7fffe272eb59b39f6b018fa101ffe391195",
+      "bytes": 59245299
+    },
+    "postflop": {
+      "file": "postflop_500k_train_set_prompt_and_label.json",
+      "rows": 500000,
+      "sha256": "89661dc905cbfd7f4610b8a2428b5744aa05ba80886f2c410e3c096930898123",
+      "bytes": 560607497
+    }
+  },
+  "source_disposition_conservation": {
+    "source_total": 563200,
+    "disposition_total": 563200,
+    "passed": true
+  },
+  "partition_counts": {
+    "train": 466704,
+    "calibration": 25929,
+    "development": 25928
+  },
+  "partition_hashes": {
+    "train.jsonl": "5f4f5e4775263c483099061c0a4b3334da6aeaa555fe44b229d56321faa5327e",
+    "calibration.jsonl": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+    "development.jsonl": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+    "test.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "locked_test_suite_hashes_unchanged": {
+    "files_checked": 15,
+    "changed_files": []
+  },
+  "training_context_admission": {
+    "eligible": 518561,
+    "max_state_tokens": 321,
+    "max_branch_tokens": 314,
+    "max_packed_tokens": 608,
+    "tokenizer": "Qwen/Qwen3.5-0.8B-Base",
+    "tokenizer_revision": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68",
+    "context": {
+      "max_state": 384,
+      "max_branch": 1024,
+      "max_packed": 2048,
+      "truncate": false
+    }
+  },
+  "targeted_builder_tests": "7 passed",
+  "combined_repo_tests": "150 passed, 1 known pre-existing failure at scripts/build_poker_ev.py:448 (context hardcode), 5.83s",
+  "full_byte_reproducibility": {
+    "generated_files_compared": 8,
+    "all_identical_before_documentation_clarification": true,
+    "partition_and_disposition_hashes_identical_after_final_docs": true,
+    "repro_directory": "/tmp/poker-train-v1-repro"
+  },
+  "independent_audit": {
+    "source_rows_and_dispositions": "all 563200 source rows matched one ledger disposition; 518561 selected records matched original instruction/output/source/provenance",
+    "schema_and_policy": "all selected records passed API schema/materialize; train sources accepted; calibration/development sources rejected by training policy",
+    "candidate_replay": "all selected candidates/labels independently replayed equal to the unchanged eval helper",
+    "test_overlap_unique_state_duplicates_cross_split_groups": "0 / 0 / 0",
+    "conflicts": "150 rows across 18 full-state keys excluded as whole groups",
+    "narrow_all_in_corrections": {
+      "count": 3403,
+      "difference_distribution": {
+        "0.5": 2080,
+        "0.7": 1323
+      }
+    },
+    "invalid_gold": {
+      "count": 6,
+      "rows": [
+        3040,
+        22039,
+        36787,
+        37241,
+        38064,
+        51009
+      ],
+      "reason": "gold 33 below min 33.5 while max is 100; correctly excluded, not corrected"
+    },
+    "review_exposed_group": "216 records forced into train",
+    "poker_v1_unchanged": "all 15 baseline file hashes and locked suite manifest verified"
+  },
+  "manifest_sha256": "3e02ebd4189a43dd0e793ea63f21fc9842d3da0c28bd72c8131317bde06286e8",
+  "documentation_update": "README usage/counts and pinned 0.8B-only admission clarification updated after the byte-identical reproduction; training data partitions are unchanged."
+}

@@ -1,0 +1,187 @@
+{
+  "purpose": "Local input-format diagnostics; no solver labels or playing-strength claim",
+  "model": "jaredpalmer/kev-0.8b",
+  "sampling": "seeded 6-seat 100BB play-chip states, Balanced persona; seeds 7-12 preflop, 13-15 flop, 16-18 river; postflop states reached by call/check",
+  "records": [
+    {
+      "seed": 7,
+      "street": "preflop",
+      "hole": [
+        "Ac",
+        "8s"
+      ],
+      "before": "raise_to_2000",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 306.6
+    },
+    {
+      "seed": 8,
+      "street": "preflop",
+      "hole": [
+        "8d",
+        "Qs"
+      ],
+      "before": "raise_to_2000",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 223.7
+    },
+    {
+      "seed": 9,
+      "street": "preflop",
+      "hole": [
+        "9d",
+        "9s"
+      ],
+      "before": "raise_to_50",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 314.7
+    },
+    {
+      "seed": 10,
+      "street": "preflop",
+      "hole": [
+        "8d",
+        "5d"
+      ],
+      "before": "raise_to_50",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 310.5
+    },
+    {
+      "seed": 11,
+      "street": "preflop",
+      "hole": [
+        "6d",
+        "5d"
+      ],
+      "before": "raise_to_2000",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 323.6
+    },
+    {
+      "seed": 12,
+      "street": "preflop",
+      "hole": [
+        "9s",
+        "Jd"
+      ],
+      "before": "raise_to_50",
+      "after": "call",
+      "order_choices": [
+        "raise_to_50",
+        "fold",
+        "call"
+      ],
+      "latency_ms": 244.6
+    },
+    {
+      "seed": 13,
+      "street": "flop",
+      "hole": [
+        "8h",
+        "3s"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 458.4
+    },
+    {
+      "seed": 14,
+      "street": "flop",
+      "hole": [
+        "2s",
+        "8d"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 432.9
+    },
+    {
+      "seed": 15,
+      "street": "flop",
+      "hole": [
+        "9d",
+        "Qh"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 429.5
+    },
+    {
+      "seed": 16,
+      "street": "river",
+      "hole": [
+        "7c",
+        "7d"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 411.8
+    },
+    {
+      "seed": 17,
+      "street": "river",
+      "hole": [
+        "Kc",
+        "7c"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 433.2
+    },
+    {
+      "seed": 18,
+      "street": "river",
+      "hole": [
+        "4d",
+        "Kh"
+      ],
+      "before": "check",
+      "after": "check",
+      "order_choices": [
+        "check"
+      ],
+      "latency_ms": 444.3
+    }
+  ]
+}

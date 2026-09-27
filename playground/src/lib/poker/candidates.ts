@@ -6,9 +6,9 @@ export function actionCandidates(s: GameState): Candidate[] {
   const p = s.players[s.actor];
   const legal = legalActions(s);
   const result: Candidate[] = [];
-  if (legal.fold) result.push({ id: "fold", action: { type: "fold" }, description: "Fold. Give up this hand; pay 0 additional chips." });
-  if (legal.check) result.push({ id: "check", action: { type: "check" }, description: `Check. Pay 0; keep ${p.stack} chips.` });
-  if (legal.call) result.push({ id: "call", action: { type: "call" }, description: `Call ${legal.call}. Street total ${p.streetBet + legal.call}; keep ${p.stack - legal.call} chips.${legal.call === p.stack ? " All-in call." : ""}` });
+  if (legal.fold) result.push({ id: "fold", action: { type: "fold" }, description: "Fold this hand. Pay 0 additional chips and give up any claim to the pot." });
+  if (legal.check) result.push({ id: "check", action: { type: "check" }, description: `Check. Pay 0 additional chips. Keep ${p.stack} chips in your stack and remain in the hand.` });
+  if (legal.call) result.push({ id: "call", action: { type: "call" }, description: `Call by paying ${legal.call} additional chips. Your total payment this street becomes ${p.streetBet + legal.call} chips; ${p.stack - legal.call} chips remain in your stack.` });
   const range = legal.aggression;
   if (!range) return result;
   const pot = potTotal(s);
@@ -23,11 +23,8 @@ export function actionCandidates(s: GameState): Candidate[] {
     const pay = to - p.streetBet;
     const action = { type: range.type, to };
     validateAction(s, action);
-    const scale = s.street === "preflop" ? `${(to / s.bigBlind).toFixed(2)} BB street total`
-      : s.currentBet === 0 ? `${(pay / pot).toFixed(2)} times the pot`
-      : `${((to - s.currentBet) / (pot + legal.call)).toFixed(2)} times the pot after calling, added above the current bet`;
     result.push({ id: `${range.type}_to_${to}`, action,
-      description: `${range.type === "bet" ? "Bet" : "Raise"} to ${to}. Pay ${pay}; keep ${p.stack - pay} chips. ${scale}.${pay === p.stack ? " All-in." : ""}` });
+      description: `${range.type === "bet" ? "Bet" : "Raise"} to a total of ${to} chips paid this street. Pay ${pay} additional chips now; ${p.stack - pay} chips remain in your stack.` });
   }
   return result;
 }

@@ -23,7 +23,7 @@ Rules references: [PokerStars rules](https://www.pokerstars.com/help/articles/po
 
 ## Amount candidates
 
-Each decision uses one Choice over complete actions, not a Score interpolated into money. All amounts are calculated before inference:
+Each decision scores complete actions using Choice questions, not a Score interpolated into money. All amounts are calculated before inference:
 
 - Preflop unopened: 2, 2.5, and 3 BB totals.
 - Preflop facing a raise: 2.5, 3, and 4 times the current highest street contribution.
@@ -34,13 +34,19 @@ Add minimum aggression and all-in, clamp to the legal range, round to integer ch
 
 ## Model boundary
 
-Observation is an explicit allowlist: the acting player's cards, public board, stacks, contributions, statuses, effective stacks, and a per-street public action log (order, chips put in, check-raise / limp flags). No deck, unrevealed board, or opponent hole cards are serialized. Personas influence instructions and never change legality or settlement.
+The request sends one English state string rendered from an explicit allowlist: the acting player's cards, public board by street, stacks, contributions, statuses, current decision, and one chronological public action log. It explains payment units and ends with a separate **Your playing personality** section containing the acting bot's current style and preferences. The structured observation remains an internal facts projection; it is not sent again beside the rendered text. No deck, unrevealed board, or opponent hole cards enter the request. Personas never change legality or settlement. [STATE_STANDARD.md](STATE_STANDARD.md) defines the communication requirements and deferred hand-strength and side-pot work.
 
-The adapter validates the returned action ID and probability distribution. The engine validates the selected action again. Probabilities describe model preferences, not win probabilities or calibrated mixed-strategy frequencies. The default executes the returned top choice.
+For N candidates, the adapter sends N cyclic option orders as isolated questions in one request. Each action appears in each position once. It validates every distribution, normalizes rounding error, averages by action ID, and selects the largest mean with a fixed key tie-break. One missing or invalid answer rejects the whole decision. This costs N question evaluations but shares the state prefix. It reduces a pure position preference; it does not guarantee invariance to all permutations or correct poker strategy.
+
+All-in remains a legal candidate. Every wager description states the payment and remaining stack, including zero, without an extra all-in slogan. The UI displays whether the tested orders chose different actions. Exports retain the exact multi-question request and per-order results alongside the average. Probabilities describe model preferences, not winning odds or calibrated mixed-strategy frequencies.
+
+A local diagnostic on the served `jaredpalmer/kev-0.8b` used six initial opening hands to investigate formatting, then 12 additional states: six preflop, three flop and three river. In the additional preflop sample, the old single-order input chose 100-BB all-in 3/6 times; the new adapter chose call 6/6 times. All six postflop decisions remained check. The same inputs still show weak hand discrimination. These are integration diagnostics without solver labels, not evidence of increased EV or playing strength.
 
 One request is in flight at a time, with a 60-second timeout. Pause/reset cancels the request and invalidates its result even if a provider ignores cancellation. Replies must match the game ID, hand, revision, and acting seat. Errors pause automation without advancing the game; AI step retries. Auto play stops advancing at a human turn or the end of the hand; use Next hand explicitly. In human mode, enabled automation resumes after the human acts.
 
 ## Verification
+
+After a hand finishes, **Export log** downloads a JSON session file. It contains every completed hand in the current table session, ordered actions and street, the final board, player stacks and contributions, personas, pot awards, and each Kev request with its observation, legal options, selected action, averaged probabilities, per-order checks, and latency. The local simulation knows every player's cards, including folded cards, so the export includes them for outcome analysis. It omits the undealt deck. Starting a new table clears the session log.
 
 From `playground/`:
 

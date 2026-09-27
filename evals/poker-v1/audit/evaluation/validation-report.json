@@ -1,0 +1,558 @@
+{
+  "per_stage": {
+    "preflop": {
+      "source": 1000,
+      "accepted": 1000,
+      "quarantined": 0
+    },
+    "postflop": {
+      "source": 10000,
+      "accepted": 10000,
+      "quarantined": 0
+    }
+  },
+  "accepted": 11000,
+  "quarantined": 0,
+  "streets": {
+    "preflop": 1000,
+    "turn": 4097,
+    "river": 5268,
+    "flop": 635
+  },
+  "outputs": {
+    "call": 2750,
+    "fold": 2750,
+    "check": 2750,
+    "raise": 1800,
+    "bet": 950
+  },
+  "normalizations": 98,
+  "gold_replacements": 2157,
+  "pot_mismatches": 8184,
+  "history_warning_rows": 136,
+  "history_warnings": {
+    "under_min_non_all_in_raise": 50,
+    "normalized_history_raise_to_bet": 86
+  },
+  "gold_corrections": {
+    "count": 73,
+    "difference_distribution": {
+      "0.7": 27,
+      "0.5": 46
+    },
+    "rows": [
+      {
+        "stage": "postflop",
+        "row": 52,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "70",
+        "to": "70.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 72,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 460,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 552,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 569,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 575,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "81",
+        "to": "81.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 641,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "73",
+        "to": "73.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 687,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 711,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "88",
+        "to": "88.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 865,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 899,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 986,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1056,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "88",
+        "to": "88.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1099,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "88",
+        "to": "88.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 1105,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1217,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1571,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1647,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1651,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1685,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 1785,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "81",
+        "to": "81.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 1864,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 1959,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "70",
+        "to": "70.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 2026,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 2061,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 2511,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 2681,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 2950,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 2998,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3010,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3071,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3131,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "81",
+        "to": "81.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3299,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3472,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "92",
+        "to": "92.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 3714,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "72",
+        "to": "72.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 3834,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3930,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 3956,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 4022,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 4048,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "72",
+        "to": "72.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 4205,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "70",
+        "to": "70.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 4487,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 4561,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 4916,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 5096,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 5675,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 5802,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 5832,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "88",
+        "to": "88.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 6088,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "70",
+        "to": "70.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 6093,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 6123,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 6213,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "81",
+        "to": "81.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 6432,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 6480,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 6588,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 6728,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 6814,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "81",
+        "to": "81.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 6890,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 7071,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 7456,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 7819,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 8322,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "84",
+        "to": "84.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 8636,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 8834,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "70",
+        "to": "70.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 8903,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 9032,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 9056,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "86",
+        "to": "86.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 9359,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "88",
+        "to": "88.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 9392,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 9570,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      },
+      {
+        "stage": "postflop",
+        "row": 9840,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "74",
+        "to": "74.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 9847,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "92",
+        "to": "92.7"
+      },
+      {
+        "stage": "postflop",
+        "row": 9992,
+        "reason": "source_integer_truncated_exact_fractional_all_in",
+        "from": "77",
+        "to": "77.5"
+      }
+    ]
+  },
+  "quarantine_reasons": {}
+}

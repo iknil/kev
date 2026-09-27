@@ -36,8 +36,8 @@ export const api = {
   systemOne: (req: SystemOneRequest, signal?: AbortSignal) => post<SystemOneResponse>("/v1/systemone", req, signal),
   separate: (req: SystemOneRequest) => post<SystemOneResponse>("/v1/systemone/separate", req),
   permute: (request: SystemOneRequest, question: string, n_perm = 6) => post<PermuteResponse>("/v1/systemone/permute", { request, question, n_perm }),
-  models: async () => {
-    const r = await fetch("/kev/v1/models");
+  models: async (signal?: AbortSignal) => {
+    const r = await fetch("/kev/v1/models", { signal });
     if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
     return r.json() as Promise<{ models: { name: string; run: string; base: string }[] }>;
   },

@@ -35,8 +35,7 @@ uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
 
 This starts Kev-4B locally in bf16 (`KEV_DTYPE=fp32` for the exact path the evaluations use). The first run downloads the adapter and base model. `--run` also accepts a local checkpoint directory or a Hub revision, such as `jaredpalmer/kev-4b@qwen3` for the previous generation.
 
-On DGX Spark, the same commands select PyTorch 2.8 with CUDA 12.9 and its matching ARM64 Triton wheel from the PyTorch index. The NVIDIA driver must support CUDA 12.9 or later. Other platforms keep their existing package sources. This installs the serving dependencies; the optional Qwen3.5 DeltaNet kernels used by the Modal image are not included.
-PyTorch 2.8 warns that GB10's compute capability 12.1 exceeds its declared maximum of 12.0. BF16 matrix multiplication and Kev-0.8B serving were verified on GB10 with driver 580.95.05; this does not establish compatibility for every CUDA operation or training workload.
+On DGX Spark, `uv sync` selects PyTorch 2.12.1 with CUDA 13, Triton 3.7.1, `flash-linear-attention`, and `causal-conv1d`. The CUDA 13 toolkit (`nvcc`) must be installed: the pinned `causal-conv1d` has no matching ARM/Python 3.13/PyTorch 2.12 wheel and is compiled locally on first sync. Other platforms retain their existing PyTorch requirements. Kev-0.8B inference with both kernels was checked on a GB10 with driver 580.95.05.
 
 In another terminal, send it a ticket:
 
@@ -224,7 +223,7 @@ Asking questions together or separately produces probabilities within 4e-6 in th
 
 ## Serving Performance
 
-On CUDA and ROCm, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this); a five-question request takes tens of milliseconds on an H100 and MI300X.
+On CUDA and ROCm, install `flash-linear-attention` for the Qwen3.5 models (the Modal image does this, and DGX Spark installs it through `uv sync`); a five-question request takes tens of milliseconds on an H100 and MI300X.
 
 The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency decision, measured on Kev-4B on an L4 with three questions and 20 requests per row. Every mode returned the same probabilities to two decimals.
 
@@ -234,7 +233,7 @@ The server runs in bf16 by default on CUDA and Apple GPUs. That is a latency dec
 | fp32 with TF32 matmuls | 113 ms | 354 ms |
 | bf16 (default) | 118 ms | 189 ms |
 
-The `causal_conv1d` kernel transformers asks for on load made no difference for prefill (114 vs 118 ms), so the images do not install it. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
+The `causal_conv1d` kernel transformers asks for on load made no difference for prefill in an earlier test (114 vs 118 ms). The Modal image does not install it; DGX Spark does. `KEV_DTYPE=fp32` serves the exact path the evaluations use; the benchmark and research tools always score in fp32 regardless of this default.
 
 On Apple Silicon there are no PyTorch kernels for the DeltaNet layers, so the server runs the Qwen3.5 models through [MLX](https://github.com/ml-explore/mlx-lm) instead (`uv sync --extra serve` installs it on Macs). Only the backbone changes. Kev's encoder, the pointer head and the calibration are the same code, and the probabilities match the fp32 PyTorch path to bf16 rounding. On all 1,024 clean decision-v7 development records (1,264 questions), Kev-4B's largest difference is 0.025 and the mean 0.0016, and the highest-probability answer changes on one question (none through the prefix cache); Kev-0.8B's largest is 0.054 and the mean 0.0023, with four changed answers (0.3%). Median time on an M5 (32 GB) for five questions with three options each on a ~270-token state, through the model directly:
 
@@ -298,6 +297,18 @@ uv run --extra serve python -m kev.serve --run runs/mine --port 8009
 `--init_from` loads the adapter and pointer head from the released model before training, so you keep what Kev already knows and add your domain on top. Starting from the base model instead throws that away: in one user's test on 836 support-tool decisions, a fine-tune from the base scored 0.33 on Kev's own evaluation set, against 0.84 for the released model; the same data with `--init_from` kept 0.83 there and reached 0.88 on the new domain. Use a smaller learning rate than the from-scratch recipe (`2e-5` is a good start), and pick `--base` to match the checkpoint you start from; the trainer checks that the base, revision, LoRA rank, and head size agree before it loads anything.
 
 `--batch 1 --accum 8` in bf16 fits the 0.8B model on a 4 GB GPU. The benchmark reports accuracy, Brier score, and calibration per question type, so you can see which of your questions the fine-tune helped. The checkpoint you started from is recorded in `runs/mine/training_config.json`.
+
+Add `--save_every_steps 100 --save_total_limit 3` to save full training progress every 100 optimizer updates. Snapshots include the adapter, pointer head, tokenizer, optimizer, learning-rate scheduler, data order, next microbatch and random-number state. They live under `<run>/checkpoints/`; only a completed snapshot becomes `latest`.
+
+Resume with the original training settings:
+
+```sh
+uv run python -m kev.train --resume runs/my-run
+```
+
+Resume requires unchanged training data, suite manifest, base revision and device type. It restores the original batch size, accumulation and total epochs; it does not start a new learning-rate schedule. You can change the save interval and retention limit when resuming. Run from the same project directory so saved relative data paths still resolve. Keep the same software and hardware for numerical reproducibility; CUDA kernels may be nondeterministic.
+
+Ctrl+C or SIGTERM requests a save after the current optimizer update, then exits. A forced kill or power loss resumes from the last complete snapshot. `--checkpointing 1` is a separate memory optimization. Old interrupted runs that never saved a full snapshot cannot be resumed. Final model files remain at the run root for serving and evaluation.
 
 Use `uv run python -m kev.train --help` for all training options. The released models don't use the optional `--perm_kl` or `--ord_w` losses. The [model cards](docs/model-cards/) have the training settings and dataset lists; [PLAN.md](PLAN.md) records what was tried and what helped.
 

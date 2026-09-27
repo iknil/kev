@@ -169,6 +169,42 @@ def test_overlong_records_are_rejected_only_for_suites_scored_as_published(tmp_p
         evaluate_records(records, other, tmp_path / "other", skip_overlong=True)
 
 
+@pytest.mark.parametrize("population", ["variant", "unknowable", "empty", "rejected"])
+def test_benchmark_without_clean_accuracy_population(tmp_path, population):
+    import warnings
+    from kev.benchmark import evaluate_records
+    from kev.model import ContextOverflow
+    from kev.suite import read_json
+
+    record = frozen_request()
+    if population == "variant":
+        record["_meta"]["variant"] = "gold_amount_replacement"
+    if population == "unknowable":
+        record["_meta"]["source"] = "unknowable"
+        record["questions"]["reason"]["src"] = "unknowable_fixture"
+
+    def predictor(record):
+        if population == "rejected":
+            raise ContextOverflow("state too long")
+        return {"probabilities": {"reason": {"size": 0.8, "damage": 0.1, "color": 0.1}}, "latency_ms": 1.0}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        report, rows = evaluate_records([] if population == "empty" else [record], predictor,
+                                        tmp_path / "result", skip_overlong=True)
+    assert read_json(tmp_path / "result" / "report.json") == report
+    assert report["objective"] is None
+    assert report["clean"] is None and report["calibrated_clean"] is None
+    assert report["coverage"]["evaluated_questions"] == len(rows)
+    if population == "variant":
+        assert report["variants"]["gold_amount_replacement"]["acc"] == 1.0
+    elif population == "unknowable":
+        assert report["unknowable"]["n"] == 1
+    else:
+        assert report["latency_ms"] == {"median": None, "p95": None}
+        assert report["coverage"]["rejected_records"] == int(population == "rejected")
+
+
 def test_missing_answers_and_nonfinite_probabilities_fail():
     from kev.benchmark import prediction_rows, validate_distribution
     with pytest.raises(ValueError, match="answer IDs"):

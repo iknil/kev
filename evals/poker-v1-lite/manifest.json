@@ -1,0 +1,217 @@
+{
+  "suite": "poker-v1-lite",
+  "version": 1,
+  "dataset": "RZ412/PokerBench",
+  "dataset_revision": "7ac61f961c81a50fc0f667820b2fb0e432dfec0d",
+  "license": "apache-2.0",
+  "eval_only": false,
+  "trainable_sources": [
+    "pokerbench_preflop_train",
+    "pokerbench_postflop_train"
+  ],
+  "eval_only_sources": [
+    "pokerbench_preflop_calibration",
+    "pokerbench_preflop_development",
+    "pokerbench_postflop_calibration",
+    "pokerbench_postflop_development",
+    "pokerbench_preflop",
+    "pokerbench_postflop"
+  ],
+  "holdout_sources": [],
+  "context": {
+    "max_state": 8192,
+    "max_branch": 8192,
+    "max_packed": 16384,
+    "truncate": false
+  },
+  "training_context": {
+    "max_state": 384,
+    "max_branch": 1024,
+    "max_packed": 2048,
+    "truncate": false
+  },
+  "partition_context": {
+    "train": {
+      "max_state": 384,
+      "max_branch": 1024,
+      "max_packed": 2048,
+      "truncate": false
+    },
+    "calibration": {
+      "max_state": 384,
+      "max_branch": 1024,
+      "max_packed": 2048,
+      "truncate": false
+    },
+    "development": {
+      "max_state": 384,
+      "max_branch": 1024,
+      "max_packed": 2048,
+      "truncate": false
+    },
+    "test": {
+      "max_state": 8192,
+      "max_branch": 8192,
+      "max_packed": 16384,
+      "truncate": false
+    }
+  },
+  "base_revisions": {
+    "Qwen/Qwen3.5-0.8B-Base": "dc7cdfe2ee4154fa7e30f5b51ca41bfa40174e68"
+  },
+  "parent_suite": "evals/poker-v1",
+  "parent_manifest_sha256": "ef1f1aefd7dac7a2bc44a2e6c7bde4e0e0b0e572440a31eafc88f6254a14b4bf",
+  "parent_partition_sha256": {
+    "train.jsonl": "5f4f5e4775263c483099061c0a4b3334da6aeaa555fe44b229d56321faa5327e",
+    "calibration.jsonl": "c44378751237fa591c830dfe548952f96ffd96a6ab4dd3042cdbb90c9d711a39",
+    "development.jsonl": "3c05716f603ad8b5a8fc62fbf1e600054732e0161000359195a1b751af29dd1f",
+    "test.jsonl": "a7167715eff3941c81b84f9198e40d6861c35c31535bebf2652fa558949889f9"
+  },
+  "selection": {
+    "fraction": "0.05",
+    "seed": 42,
+    "stratify_by": [
+      "candidate_policy.street",
+      "action_label_type"
+    ],
+    "algorithm": "sha256(f'{seed}:{_meta.id}'), lowest hashes within largest-remainder quotas; selected raw lines emitted in source order",
+    "fraction_applies_to": [
+      "train",
+      "calibration",
+      "development"
+    ],
+    "test": {
+      "parent_manifest_sha256": "ef1f1aefd7dac7a2bc44a2e6c7bde4e0e0b0e572440a31eafc88f6254a14b4bf",
+      "parent_test_sha256": "a7167715eff3941c81b84f9198e40d6861c35c31535bebf2652fa558949889f9",
+      "seed": 42,
+      "count": 1000,
+      "algorithm": "Equal street quotas, then equal label-action quotas within each street; capacity-limited redistribution with lexical ties. Lowest SHA256(seed:id) per stratum; raw lines in source order.",
+      "strata": {
+        "flop|bet": {
+          "available": 67,
+          "selected": 50
+        },
+        "flop|call": {
+          "available": 295,
+          "selected": 50
+        },
+        "flop|check": {
+          "available": 101,
+          "selected": 50
+        },
+        "flop|fold": {
+          "available": 75,
+          "selected": 50
+        },
+        "flop|raise": {
+          "available": 97,
+          "selected": 50
+        },
+        "preflop|call": {
+          "available": 250,
+          "selected": 63
+        },
+        "preflop|check": {
+          "available": 250,
+          "selected": 63
+        },
+        "preflop|fold": {
+          "available": 250,
+          "selected": 62
+        },
+        "preflop|raise": {
+          "available": 250,
+          "selected": 62
+        },
+        "river|bet": {
+          "available": 750,
+          "selected": 50
+        },
+        "river|call": {
+          "available": 980,
+          "selected": 50
+        },
+        "river|check": {
+          "available": 1605,
+          "selected": 50
+        },
+        "river|fold": {
+          "available": 1276,
+          "selected": 50
+        },
+        "river|raise": {
+          "available": 657,
+          "selected": 50
+        },
+        "turn|bet": {
+          "available": 231,
+          "selected": 50
+        },
+        "turn|call": {
+          "available": 1225,
+          "selected": 50
+        },
+        "turn|check": {
+          "available": 794,
+          "selected": 50
+        },
+        "turn|fold": {
+          "available": 1149,
+          "selected": 50
+        },
+        "turn|raise": {
+          "available": 698,
+          "selected": 50
+        }
+      },
+      "streets": {
+        "flop": 250,
+        "preflop": 250,
+        "river": 250,
+        "turn": 250
+      }
+    }
+  },
+  "counts": {
+    "train": 23335,
+    "calibration": 1296,
+    "development": 1296,
+    "test": 1000
+  },
+  "protocol": {
+    "test_is_non_independent_subset": true,
+    "model_evaluation_run": false,
+    "training_run": false,
+    "raw_records_unchanged": true
+  },
+  "files": {
+    "train.jsonl": {
+      "sha256": "9a12f17d530b14294761ea01b4b1e8ca455a5eb60a40bac9bfa2e41523d0b5a5",
+      "bytes": 79174719,
+      "records": 23335
+    },
+    "calibration.jsonl": {
+      "sha256": "207c87c111d18ee60c3af6b689b62c2416f97314c1a4db9efb71035b61795b9b",
+      "bytes": 4426205,
+      "records": 1296
+    },
+    "development.jsonl": {
+      "sha256": "a277f23e48f3aaf2f139da42cc18e39a3108e9f0794925e1c42155ee3e461e8b",
+      "bytes": 4433877,
+      "records": 1296
+    },
+    "test.jsonl": {
+      "sha256": "a0f59ad45f431510f1ba707ba7dd115cd0e1af266699fe546b4aa53f3aac2244",
+      "bytes": 3071000,
+      "records": 1000
+    },
+    "selection-report.json": {
+      "sha256": "b21a77b6a3a0d1ab41708263ad8b7be37165a723bd1a667dbba888a909d47f12",
+      "bytes": 12608
+    },
+    "README.md": {
+      "sha256": "df0b4e9351af416417d7c42db0fcfaa4c9565a098cd97ced484107625f787457",
+      "bytes": 1481
+    }
+  }
+}
